@@ -3,6 +3,7 @@ local fonts = require("src.ui.fonts")
 local state_manager = require("src.states.state_manager")
 local session = require("src.engine.session")
 local genetics = require("src.engine.genetics")
+local cards = require("src.engine.cards")
 local avatar = require("src.ui.avatar")
 
 function hub_state:enter()
@@ -10,6 +11,7 @@ function hub_state:enter()
     self.dragged_cell = nil
     self.market_open = false
     self.cryo_open = false
+    self.inspector_tab = self.inspector_tab or "stats"
     self.status_msg = "Схватите особь мышкой: перетащите на яйцеклетку в чашке для скрещивания или в Шлюз для отряда!"
     self.save_notify_timer = 0
     self.time = 0
@@ -411,9 +413,20 @@ function hub_state:draw_drop_stations()
     love.graphics.rectangle("line", gate_x, sy, gate_w, sh, 8, 8)
 
     local squad = session.get_squad()
+    local squad_deck_size = 0
+    for _, m in ipairs(squad) do
+        if m.phenotype and m.phenotype.deck then
+            squad_deck_size = squad_deck_size + #m.phenotype.deck
+        end
+    end
+
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(0.3, 0.95, 1, 1)
-    love.graphics.print("ШЛЮЗ (ОТРЯД: " .. #squad .. "/4)", gate_x + 15, sy + 8)
+    love.graphics.print("ШЛЮЗ (" .. #squad .. "/4)", gate_x + 12, sy + 8)
+
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(0.7, 0.88, 1, 0.85)
+    love.graphics.printf("Колода: " .. squad_deck_size .. " к.", gate_x + 130, sy + 10, gate_w - 142, "right")
 
     -- 4 слота отряда в сетке 2x2
     local slot_w = 112
@@ -561,108 +574,287 @@ function hub_state:draw_rimworld_inspector()
     love.graphics.setColor(0.2, 0.45, 0.65, 0.4)
     love.graphics.line(ix + 15, iy + 92, ix + iw - 15, iy + 92)
 
-    -- 2. Инкубационная смотровая камера с RimWorld аватаром
-    local chamber_y = iy + 102
-    local chamber_h = 145
-    love.graphics.setColor(0.04, 0.08, 0.13, 0.95)
-    love.graphics.rectangle("fill", ix + 20, chamber_y, iw - 40, chamber_h, 6, 6)
-    love.graphics.setColor(0.2, 0.65, 0.9, 0.7)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", ix + 20, chamber_y, iw - 40, chamber_h, 6, 6)
+    -- Вкладки инспектора: [ АНАТОМИЯ ] и [ КОЛОДА ДНК (N) ]
+    local deck_count = cur.phenotype.deck and #cur.phenotype.deck or 0
+    local tab_w = 195
+    local tab_h = 28
+    local tab_y = iy + 96
 
-    love.graphics.setColor(0.08, 0.18, 0.28, 0.35)
-    love.graphics.circle("fill", ix + 20 + (iw - 40) / 2, chamber_y + chamber_h / 2, 60)
-
-    -- Рендеринг портрета
-    avatar.draw(cur, ix + 20 + (iw - 40) / 2 + 10, chamber_y + chamber_h / 2, 0.95, self.time)
-
-    -- 3. Полоса ХП
-    local hp_y = chamber_y + chamber_h + 10
-    local hp = cur.phenotype.current_hp or cur.phenotype.max_hp
-    local max_hp = cur.phenotype.max_hp
-    local hp_pct = math.max(0, math.min(1, hp / max_hp))
-
-    love.graphics.setColor(0.12, 0.16, 0.22, 0.9)
-    love.graphics.rectangle("fill", ix + 20, hp_y, iw - 40, 24, 4, 4)
-    love.graphics.setColor(is_oocyte and {0.95, 0.45, 0.70, 0.9} or {0.15, 0.8, 0.4, 0.9})
-    love.graphics.rectangle("fill", ix + 22, hp_y + 2, (iw - 44) * hp_pct, 20, 3, 3)
+    local is_tab_stats = (self.inspector_tab ~= "deck")
+    love.graphics.setColor(is_tab_stats and {0.2, 0.55, 0.85, 0.95} or {0.10, 0.16, 0.24, 0.8})
+    love.graphics.rectangle("fill", ix + 20, tab_y, tab_w, tab_h, 4, 4)
+    love.graphics.setColor(is_tab_stats and {0.4, 0.9, 1, 1} or {0.3, 0.5, 0.7, 0.6})
+    love.graphics.setLineWidth(is_tab_stats and 2 or 1)
+    love.graphics.rectangle("line", ix + 20, tab_y, tab_w, tab_h, 4, 4)
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.printf("ХП: " .. hp .. " / " .. max_hp, ix + 20, hp_y + 4, iw - 40, "center")
+    love.graphics.setColor(is_tab_stats and {1, 1, 1, 1} or {0.7, 0.85, 0.95, 0.75})
+    love.graphics.printf("АНАТОМИЯ", ix + 20, tab_y + 6, tab_w, "center")
 
-    -- 4. Шкалы боевых характеристик
-    local function draw_mini_bar(title, val_str, val, max_v, by, col)
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(0.85, 0.9, 0.95, 0.9)
-        love.graphics.print(title, ix + 20, by)
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(col)
-        love.graphics.print(val_str, ix + 160, by)
+    local is_tab_deck = not is_tab_stats
+    love.graphics.setColor(is_tab_deck and {0.2, 0.55, 0.85, 0.95} or {0.10, 0.16, 0.24, 0.8})
+    love.graphics.rectangle("fill", ix + 225, tab_y, tab_w, tab_h, 4, 4)
+    love.graphics.setColor(is_tab_deck and {0.4, 0.9, 1, 1} or {0.3, 0.5, 0.7, 0.6})
+    love.graphics.setLineWidth(is_tab_deck and 2 or 1)
+    love.graphics.rectangle("line", ix + 225, tab_y, tab_w, tab_h, 4, 4)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(is_tab_deck and {1, 1, 1, 1} or {0.7, 0.85, 0.95, 0.75})
+    love.graphics.printf("КОЛОДА ДНК (" .. deck_count .. ")", ix + 225, tab_y + 6, tab_w, "center")
 
-        local pct = math.max(0.05, math.min(1.0, val / max_v))
+    if is_tab_stats then
+        -- 2. Инкубационная смотровая камера с RimWorld аватаром
+        local chamber_y = iy + 132
+        local chamber_h = 135
+        love.graphics.setColor(0.04, 0.08, 0.13, 0.95)
+        love.graphics.rectangle("fill", ix + 20, chamber_y, iw - 40, chamber_h, 6, 6)
+        love.graphics.setColor(0.2, 0.65, 0.9, 0.7)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.rectangle("line", ix + 20, chamber_y, iw - 40, chamber_h, 6, 6)
+
+        love.graphics.setColor(0.08, 0.18, 0.28, 0.35)
+        love.graphics.circle("fill", ix + 20 + (iw - 40) / 2, chamber_y + chamber_h / 2, 55)
+
+        -- Рендеринг портрета
+        avatar.draw(cur, ix + 20 + (iw - 40) / 2 + 10, chamber_y + chamber_h / 2, 0.90, self.time)
+
+        -- 3. Полоса ХП
+        local hp_y = chamber_y + chamber_h + 8
+        local hp = cur.phenotype.current_hp or cur.phenotype.max_hp
+        local max_hp = cur.phenotype.max_hp
+        local hp_pct = math.max(0, math.min(1, hp / max_hp))
+
         love.graphics.setColor(0.12, 0.16, 0.22, 0.9)
-        love.graphics.rectangle("fill", ix + 250, by + 4, iw - 275, 8, 2, 2)
-        love.graphics.setColor(col)
-        love.graphics.rectangle("fill", ix + 250, by + 4, (iw - 275) * pct, 8, 2, 2)
-    end
+        love.graphics.rectangle("fill", ix + 20, hp_y, iw - 40, 22, 4, 4)
+        love.graphics.setColor(is_oocyte and {0.95, 0.45, 0.70, 0.9} or {0.15, 0.8, 0.4, 0.9})
+        love.graphics.rectangle("fill", ix + 22, hp_y + 2, (iw - 44) * hp_pct, 18, 3, 3)
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.printf("ХП: " .. hp .. " / " .. max_hp, ix + 20, hp_y + 3, iw - 40, "center")
 
-    local sy = hp_y + 34
-    local dmg_mod = cur.phenotype.bonus_dmg or 0
-    draw_mini_bar("Гидролиз (Урон):", (dmg_mod >= 0 and "+" or "") .. dmg_mod .. " ед.", 6 + dmg_mod, 14, sy, {0.95, 0.35, 0.35, 1})
+        -- 4. Шкалы боевых характеристик
+        local function draw_mini_bar(title, val_str, val, max_v, by, col)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.85, 0.9, 0.95, 0.9)
+            love.graphics.print(title, ix + 20, by)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(col)
+            love.graphics.print(val_str, ix + 160, by)
 
-    sy = sy + 24
-    local hz = cur.phenotype.frequency_hz or 0
-    draw_mini_bar("Мотильность (Гц):", is_oocyte and "0 (Парение)" or (hz .. " Гц"), hz, 60, sy, {0.2, 0.85, 1.0, 1})
+            local pct = math.max(0.05, math.min(1.0, val / max_v))
+            love.graphics.setColor(0.12, 0.16, 0.22, 0.9)
+            love.graphics.rectangle("fill", ix + 250, by + 4, iw - 275, 8, 2, 2)
+            love.graphics.setColor(col)
+            love.graphics.rectangle("fill", ix + 250, by + 4, (iw - 275) * pct, 8, 2, 2)
+        end
 
-    sy = sy + 24
-    local atp = cur.phenotype.bonus_atp or 0
-    draw_mini_bar("Синтез энергии:", "+" .. atp .. " АТФ", atp + 1, 3, sy, {1.0, 0.7, 0.2, 1})
+        local sy = hp_y + 28
+        local dmg_mod = cur.phenotype.bonus_dmg or 0
+        draw_mini_bar("Гидролиз (Урон):", (dmg_mod >= 0 and "+" or "") .. dmg_mod .. " ед.", 6 + dmg_mod, 14, sy, {0.95, 0.35, 0.35, 1})
 
-    sy = sy + 24
-    local shield = cur.phenotype.shield or 0
-    draw_mini_bar("Липидный щит:", shield .. " ед.", shield, 18, sy, {0.25, 0.9, 0.5, 1})
+        sy = sy + 22
+        local hz = cur.phenotype.frequency_hz or 0
+        draw_mini_bar("Мотильность (Гц):", is_oocyte and "0 (Парение)" or (hz .. " Гц"), hz, 60, sy, {0.2, 0.85, 1.0, 1})
 
-    -- 5. Трейты / Мутации
-    sy = sy + 28
-    love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(1, 0.85, 0.3, 1)
-    love.graphics.print("ЧЕРТЫ И МУТАЦИИ:", ix + 20, sy)
+        sy = sy + 22
+        local atp = cur.phenotype.bonus_atp or 0
+        draw_mini_bar("Синтез энергии:", "+" .. atp .. " АТФ", atp + 1, 3, sy, {1.0, 0.7, 0.2, 1})
 
-    local traits = {}
-    if is_oocyte then
-        table.insert(traits, {name = "МАТЕРИНСКИЙ ООЦИТ (+15 ХП, щит)", col = {0.98, 0.55, 0.8}})
-    end
-    if cur.freak_type == "freak_two_headed" then
-        table.insert(traits, {name = "ДВУГЛАВАЯ ОСОБЬ (+3 урон, -8 Гц)", col = {1.0, 0.35, 0.45}})
-    elseif cur.freak_type == "freak_corkscrew" then
-        table.insert(traits, {name = "ХВОСТ-ШТОПОР (+10 Гц, -5 ХП)", col = {1.0, 0.4, 0.8}})
-    elseif cur.freak_type == "freak_giant_head" then
-        table.insert(traits, {name = "МАКРОЦЕФАЛИЯ (+15 ХП, +6 щит)", col = {0.95, 0.7, 0.2}})
-    end
-    if cur.chromosomes.ch3 == "FLA_TWIN" and cur.freak_type ~= "freak_two_headed" and not is_oocyte then
-        table.insert(traits, {name = "БИФЛАГЕЛЛЯР (2 ХВОСТА)", col = {0.2, 0.9, 0.6}})
-    end
-    if cur.chromosomes.ch1 == "ACR_HYPER" then
-        table.insert(traits, {name = "ЕДКИЙ ГИДРОЛИЗ (A+)", col = {0.95, 0.4, 0.3}})
-    end
-    if cur.chromosomes.ch4 == "MEM_DENSE" then
-        table.insert(traits, {name = "ХОЛЕСТЕРИНОВЫЙ ПАНЦИРЬ", col = {0.95, 0.8, 0.2}})
-    end
-    if #traits == 0 then
-        table.insert(traits, {name = "СТАНДАРТНАЯ МОРФОЛОГИЯ", col = {0.5, 0.7, 0.9}})
-    end
+        sy = sy + 22
+        local shield = cur.phenotype.shield or 0
+        draw_mini_bar("Липидный щит:", shield .. " ед.", shield, 18, sy, {0.25, 0.9, 0.5, 1})
 
-    sy = sy + 20
-    for _, tr in ipairs(traits) do
-        love.graphics.setColor(0.10, 0.15, 0.22, 0.95)
-        love.graphics.rectangle("fill", ix + 20, sy, iw - 40, 24, 3, 3)
-        love.graphics.setColor(tr.col[1], tr.col[2], tr.col[3], 0.8)
+        -- 5. Трейты / Мутации
+        sy = sy + 26
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(1, 0.85, 0.3, 1)
+        love.graphics.print("ЧЕРТЫ И МУТАЦИИ:", ix + 20, sy)
+
+        local traits = {}
+        if is_oocyte then
+            table.insert(traits, {name = "МАТЕРИНСКИЙ ООЦИТ (+15 ХП, щит)", col = {0.98, 0.55, 0.8}})
+        end
+        if cur.freak_type == "freak_two_headed" then
+            table.insert(traits, {name = "ДВУГЛАВАЯ ОСОБЬ (+3 урон, -8 Гц)", col = {1.0, 0.35, 0.45}})
+        elseif cur.freak_type == "freak_corkscrew" then
+            table.insert(traits, {name = "ХВОСТ-ШТОПОР (+10 Гц, -5 ХП)", col = {1.0, 0.4, 0.8}})
+        elseif cur.freak_type == "freak_giant_head" then
+            table.insert(traits, {name = "МАКРОЦЕФАЛИЯ (+15 ХП, +6 щит)", col = {0.95, 0.7, 0.2}})
+        end
+        if cur.chromosomes.ch3 == "FLA_TWIN" and cur.freak_type ~= "freak_two_headed" and not is_oocyte then
+            table.insert(traits, {name = "БИФЛАГЕЛЛЯР (2 ХВОСТА)", col = {0.2, 0.9, 0.6}})
+        end
+        if cur.chromosomes.ch1 == "ACR_HYPER" then
+            table.insert(traits, {name = "ЕДКИЙ ГИДРОЛИЗ (A+)", col = {0.95, 0.4, 0.3}})
+        end
+        if cur.chromosomes.ch4 == "MEM_DENSE" then
+            table.insert(traits, {name = "ХОЛЕСТЕРИНОВЫЙ ПАНЦИРЬ", col = {0.95, 0.8, 0.2}})
+        end
+        if #traits == 0 then
+            table.insert(traits, {name = "СТАНДАРТНАЯ МОРФОЛОГИЯ", col = {0.5, 0.7, 0.9}})
+        end
+
+        sy = sy + 20
+        for _, tr in ipairs(traits) do
+            love.graphics.setColor(0.10, 0.15, 0.22, 0.95)
+            love.graphics.rectangle("fill", ix + 20, sy, iw - 40, 24, 3, 3)
+            love.graphics.setColor(tr.col[1], tr.col[2], tr.col[3], 0.8)
+            love.graphics.setLineWidth(1)
+            love.graphics.rectangle("line", ix + 20, sy, iw - 40, 24, 3, 3)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(tr.col[1], tr.col[2], tr.col[3], 1)
+            love.graphics.print(tr.name, ix + 28, sy + 4)
+            sy = sy + 28
+        end
+    else
+        -- Вкладка "КОЛОДА ДНК"
+        local mx, my = love.mouse.getPosition()
+        local deck_raw = cur.phenotype.deck or {}
+        local card_counts = {}
+        local card_order = {}
+
+        for _, cid in ipairs(deck_raw) do
+            if not card_counts[cid] then
+                card_counts[cid] = 0
+                table.insert(card_order, cid)
+            end
+            card_counts[cid] = card_counts[cid] + 1
+        end
+
+        local cy = iy + 132
+        local row_w = iw - 40
+        local row_h = 36
+        local hovered_card_def = nil
+
+        for idx, cid in ipairs(card_order) do
+            local count = card_counts[cid]
+            local cdef = cards.DATABASE[cid] or {
+                name = cid,
+                cost = 1,
+                organ = "ДНК",
+                category = "bio",
+                target_type = "enemy",
+                desc = "Неизвестный генетический код."
+            }
+
+            local rx = ix + 20
+            local ry = cy
+            local is_hover = (mx >= rx and mx <= rx + row_w and my >= ry and my <= ry + row_h)
+            if is_hover then
+                hovered_card_def = cdef
+            end
+
+            -- Цветовая схема по категории
+            local cat_col = {0.3, 0.75, 0.95}
+            if cdef.category == "ferment" then
+                cat_col = {0.95, 0.4, 0.3}
+            elseif cdef.category == "motility" then
+                cat_col = {0.2, 0.85, 1.0}
+            elseif cdef.category == "membrane" then
+                cat_col = {0.25, 0.9, 0.5}
+            elseif cdef.category == "bio" or cdef.category == "support" then
+                cat_col = {1.0, 0.75, 0.25}
+            end
+
+            -- Плашка карты
+            love.graphics.setColor(is_hover and {0.16, 0.26, 0.38, 0.98} or {0.08, 0.12, 0.19, 0.92})
+            love.graphics.rectangle("fill", rx, ry, row_w, row_h, 5, 5)
+            love.graphics.setColor(is_hover and {0.5, 0.95, 1.0, 1} or {cat_col[1] * 0.7, cat_col[2] * 0.7, cat_col[3] * 0.7, 0.7})
+            love.graphics.setLineWidth(is_hover and 2 or 1)
+            love.graphics.rectangle("line", rx, ry, row_w, row_h, 5, 5)
+
+            -- Кристалл стоимости АТФ
+            love.graphics.setColor(0.12, 0.2, 0.3, 0.9)
+            love.graphics.rectangle("fill", rx + 6, ry + 5, 26, 26, 4, 4)
+            love.graphics.setColor(0.3, 0.9, 1, 0.8)
+            love.graphics.rectangle("line", rx + 6, ry + 5, 26, 26, 4, 4)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(0.35, 0.95, 1, 1)
+            love.graphics.printf(tostring(cdef.cost or 1), rx + 6, ry + 9, 26, "center")
+
+            -- Название карты
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.print(cdef.name, rx + 38, ry + 8)
+
+            -- Метка органа и цели
+            local target_txt = (cdef.target_type == "enemy" and "ВРАГ" or (cdef.target_type == "ally" and "СОЮЗНИК" or (cdef.target_type == "all_allies" and "ВСЕ" or "СЕБЯ")))
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(cat_col[1], cat_col[2], cat_col[3], 0.9)
+            love.graphics.print("[" .. (cdef.organ or "Орган") .. " | " .. target_txt .. "]", rx + 205, ry + 11)
+
+            -- Бейдж количества (x2, x3)
+            if count > 1 then
+                love.graphics.setColor(0.85, 0.65, 0.1, 0.95)
+                love.graphics.rectangle("fill", rx + row_w - 38, ry + 7, 30, 22, 3, 3)
+                love.graphics.setFont(fonts.bold)
+                love.graphics.setColor(0.05, 0.08, 0.12, 1)
+                love.graphics.printf("x" .. count, rx + row_w - 38, ry + 9, 30, "center")
+            else
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(0.5, 0.65, 0.75, 0.6)
+                love.graphics.print("x1", rx + row_w - 26, ry + 11)
+            end
+
+            cy = cy + row_h + 4
+        end
+
+        -- Блок детального описания (тултип) внизу вкладки
+        local tip_y = iy + ih - 142
+        local tip_h = 126
+        local tip_w = iw - 40
+        love.graphics.setColor(0.04, 0.08, 0.13, 0.96)
+        love.graphics.rectangle("fill", ix + 20, tip_y, tip_w, tip_h, 6, 6)
+        love.graphics.setColor(0.2, 0.5, 0.75, 0.6)
         love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", ix + 20, sy, iw - 40, 24, 3, 3)
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(tr.col[1], tr.col[2], tr.col[3], 1)
-        love.graphics.print(tr.name, ix + 28, sy + 4)
-        sy = sy + 28
+        love.graphics.rectangle("line", ix + 20, tip_y, tip_w, tip_h, 6, 6)
+
+        if hovered_card_def then
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(1, 0.9, 0.35, 1)
+            love.graphics.print(hovered_card_def.name, ix + 32, tip_y + 10)
+
+            if hovered_card_def.latin then
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(0.4, 0.85, 1, 0.9)
+                love.graphics.print("•  " .. hovered_card_def.latin, ix + 34 + fonts.bold:getWidth(hovered_card_def.name) + 10, tip_y + 12)
+            end
+
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.65, 0.8, 0.9, 0.85)
+            local tip_meta = "Расход: " .. (hovered_card_def.cost or 1) .. " АТФ  |  Орган: " .. (hovered_card_def.organ or "Общий") .. "  |  Тип: " .. (hovered_card_def.type or "эффект")
+            love.graphics.print(tip_meta, ix + 32, tip_y + 32)
+
+            love.graphics.setColor(0.25, 0.45, 0.6, 0.4)
+            love.graphics.line(ix + 30, tip_y + 50, ix + 20 + tip_w - 10, tip_y + 50)
+
+            love.graphics.setFont(fonts.regular)
+            love.graphics.setColor(0.92, 0.95, 1, 0.95)
+            love.graphics.printf(hovered_card_def.desc or "Биологический эффект не описан.", ix + 32, tip_y + 58, tip_w - 24, "left")
+        else
+            local first_cid = card_order[1]
+            local first_def = first_cid and cards.DATABASE[first_cid]
+            if first_def then
+                love.graphics.setFont(fonts.bold)
+                love.graphics.setColor(0.8, 0.88, 0.95, 0.9)
+                love.graphics.print(first_def.name, ix + 32, tip_y + 10)
+                if first_def.latin then
+                    love.graphics.setFont(fonts.small)
+                    love.graphics.setColor(0.4, 0.85, 1, 0.85)
+                    love.graphics.print("•  " .. first_def.latin, ix + 34 + fonts.bold:getWidth(first_def.name) + 10, tip_y + 12)
+                end
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(0.65, 0.8, 0.9, 0.85)
+                love.graphics.print("Расход: " .. (first_def.cost or 1) .. " АТФ  |  Орган: " .. (first_def.organ or "Общий"), ix + 32, tip_y + 32)
+                love.graphics.setColor(0.25, 0.45, 0.6, 0.4)
+                love.graphics.line(ix + 30, tip_y + 50, ix + 20 + tip_w - 10, tip_y + 50)
+                love.graphics.setFont(fonts.regular)
+                love.graphics.setColor(0.92, 0.95, 1, 0.95)
+                love.graphics.printf(first_def.desc or "", ix + 32, tip_y + 58, tip_w - 24, "left")
+            else
+                love.graphics.setFont(fonts.regular)
+                love.graphics.setColor(0.5, 0.65, 0.8, 0.8)
+                love.graphics.printf("Наведите курсор на любую карту выше, чтобы увидеть ее биологическое действие.", ix + 32, tip_y + 50, tip_w - 24, "center")
+            end
+        end
     end
 end
 
@@ -1043,6 +1235,20 @@ function hub_state:mousepressed(x, y, button)
             end
         end
         return
+    end
+
+    -- Вкладки инспектора: [ АНАТОМИЯ ] / [ КОЛОДА ДНК ]
+    local tab_y = iy + 96
+    local tab_w = 195
+    local tab_h = 28
+    if y >= tab_y and y <= tab_y + tab_h then
+        if x >= ix + 20 and x <= ix + 20 + tab_w then
+            self.inspector_tab = "stats"
+            return
+        elseif x >= ix + 225 and x <= ix + 225 + tab_w then
+            self.inspector_tab = "deck"
+            return
+        end
     end
 
     -- ЗАХВАТ КЛЕТКИ МЫШКОЙ (Drag & Drop)

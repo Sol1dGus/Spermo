@@ -81,5 +81,27 @@ assert(#session.data.cryo_vault == 0, "Cryo vault should be empty")
 assert(#session.data.colony == col_count_before, "Colony should be restored")
 print("Specimen unfrozen successfully.")
 
+print("--- 6. Testing Mutant Inbreeding Freak Cards ---")
+local freak_sperm = genetics.create_random_specimen("MUTANT-HYDRA")
+freak_sperm.freak_type = "freak_two_headed"
+freak_sperm.phenotype = genetics.calculate_phenotype(freak_sperm)
+assert(cards.DATABASE["bicephalic_bite"] ~= nil, "bicephalic_bite should exist in card DB")
+local has_bicephalic = false
+for _, cid in ipairs(freak_sperm.phenotype.deck) do
+    if cid == "bicephalic_bite" then has_bicephalic = true end
+end
+assert(has_bicephalic, "Two-headed freak must contain bicephalic_bite cards in deck")
+print("Freak mutation card verified:", freak_sperm.name, "contains bicephalic_bite")
+
+-- Test play mutant card in combat
+local freak_battle = combat.new({freak_sperm}, "neutrophil")
+local bite_card = { data = cards.DATABASE["bicephalic_bite"], owner = freak_battle.heroes[1] }
+freak_battle.atp = 10
+local prev_hp = freak_battle.enemy.hp
+local bite_ok = freak_battle:play_card(bite_card)
+assert(bite_ok, "Playing bicephalic_bite should succeed")
+assert(freak_battle.enemy.hp < prev_hp, "Enemy should take double-bite damage")
+print("Mutant attack card resolved! Enemy HP before:", prev_hp, "after:", freak_battle.enemy.hp)
+
 print(">>> ALL TESTS PASSED SUCCESSFULLY! <<<")
 love.event.quit(0)

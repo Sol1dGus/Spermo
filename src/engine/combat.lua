@@ -52,7 +52,7 @@ function combat.new(squad_or_specimen, enemy_type)
     self.allies = {} -- Призванные симбионты (напр. Лактобактерии)
 
     self.turn = 1
-    self.max_atp = math.min(10, 1 + #self.heroes) -- Больше бойцов = больше стартовый пул АТФ!
+    self.max_atp = self:calculate_turn_atp()
     self.atp = self.max_atp
     self.ph = 5.8
     self.phase = "player_turn"
@@ -67,6 +67,17 @@ function combat.new(squad_or_specimen, enemy_type)
     self:start_combat()
 
     return self
+end
+
+function combat:calculate_turn_atp()
+    local base = 3
+    local mito_bonus = 0
+    for _, h in ipairs(self.heroes) do
+        if h.hp > 0 and h.specimen and h.specimen.phenotype then
+            mito_bonus = mito_bonus + (h.specimen.phenotype.bonus_atp or 0)
+        end
+    end
+    return math.min(10, base + mito_bonus)
 end
 
 function combat:init_deck()
@@ -95,7 +106,7 @@ function combat:start_combat()
     for _, h in ipairs(self.heroes) do table.insert(names, h.name) end
     self:add_log("=== СТЫЧКА: Отряд [" .. table.concat(names, ", ") .. "] vs " .. self.enemy.name .. " ===")
     self:add_log("Микроокружение: pH " .. string.format("%.1f", self.ph) .. " (кислая зона)")
-    self:draw_cards(4)
+    self:draw_cards(3 + #self:get_alive_heroes())
 end
 
 function combat:add_log(msg)
@@ -107,7 +118,7 @@ end
 
 function combat:draw_cards(count)
     for i = 1, count do
-        if #self.hand >= 7 then break end
+        if #self.hand >= 8 then break end
         if #self.deck == 0 then
             if #self.graveyard > 0 then
                 for _, item in ipairs(self.graveyard) do
@@ -284,7 +295,7 @@ function combat:end_turn()
 
     -- Начало нового хода игрока
     self.turn = self.turn + 1
-    self.max_atp = math.min(10, self.max_atp + 1)
+    self.max_atp = self:calculate_turn_atp()
     self.atp = self.max_atp + self.next_turn_atp_bonus
     self.next_turn_atp_bonus = 0
 
@@ -295,7 +306,8 @@ function combat:end_turn()
         end
     end
 
-    self:draw_cards(2)
+    local cards_to_draw = math.min(5, 2 + math.ceil(#self:get_alive_heroes() / 2))
+    self:draw_cards(cards_to_draw)
     self.phase = "player_turn"
     self:add_log("--- Ход " .. self.turn .. " (АТФ: " .. self.atp .. ") ---")
 end

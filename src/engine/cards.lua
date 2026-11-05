@@ -370,6 +370,61 @@ cards.DATABASE = {
             target.hp = target.hp + heal
             combat:add_log(user.name .. " подпитала " .. target.name .. ": +" .. heal .. " ХП!")
         end
+    },
+
+    -- 7. Эксклюзивные карты мутаций (Священные уродцы Mewgenics)
+    bicephalic_bite = {
+        id = "bicephalic_bite",
+        name = "Двуглавый укус",
+        latin = "Bicephalus morsus",
+        cost = 2,
+        type = "attack",
+        category = "ferment",
+        organ = "Акросома",
+        target_type = "enemy",
+        damage = 14,
+        desc = "Синхронный укус двух головок: 2 удара по 7 ед. кислотного гидролиза!",
+        effect = function(combat, user, target)
+            target = target or combat.enemy
+            target:take_damage(7 + (user.bonus_dmg or 0), "acid")
+            target:take_damage(7 + (user.bonus_dmg or 0), "acid")
+            combat:add_log(user.name .. " совершил двуглавый укус: 2 удара по 7 урона!")
+        end
+    },
+    corkscrew_drill = {
+        id = "corkscrew_drill",
+        name = "Штопорное бурение",
+        latin = "Terebratio helicoidalis",
+        cost = 2,
+        type = "attack",
+        category = "motility",
+        organ = "Хвост",
+        target_type = "enemy",
+        damage = 11,
+        desc = "Вращение спирального хвоста: 11 урона, полностью игнорирует броню цели!",
+        effect = function(combat, user, target)
+            target = target or combat.enemy
+            target:take_damage(11, "ros") -- игнорирует броню
+            combat:add_log("Штопорное бурение пробило цель сквозь броню: 11 урона!")
+        end
+    },
+    titanic_ram = {
+        id = "titanic_ram",
+        name = "Титанический таран",
+        latin = "Arietatio titanica",
+        cost = 2,
+        type = "attack",
+        category = "membrane",
+        organ = "Мембрана",
+        target_type = "enemy",
+        desc = "Удар гигантской головкой: наносит урон равный текущему щиту (мин. 6), и дает +4 щита.",
+        effect = function(combat, user, target)
+            target = target or combat.enemy
+            local dmg = math.max(6, user.shield or 0)
+            user.shield = (user.shield or 0) + 4
+            target:take_damage(dmg, "phys")
+            combat:add_log("Титанический таран нанес " .. dmg .. " урона от щита (+4 к щиту)!")
+        end
     }
 }
 

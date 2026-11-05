@@ -296,6 +296,18 @@ function genetics.calculate_phenotype(specimen)
         table.insert(p.deck, "ph_buffer_spray")
     end
 
+    -- Эксклюзивные карты мутаций (Священные уродцы инбридинга)
+    if specimen.freak_type == "freak_two_headed" then
+        table.insert(p.deck, "bicephalic_bite")
+        table.insert(p.deck, "bicephalic_bite")
+    elseif specimen.freak_type == "freak_corkscrew" then
+        table.insert(p.deck, "corkscrew_drill")
+        table.insert(p.deck, "corkscrew_drill")
+    elseif specimen.freak_type == "freak_giant_head" then
+        table.insert(p.deck, "titanic_ram")
+        table.insert(p.deck, "titanic_ram")
+    end
+
     return p
 end
 
