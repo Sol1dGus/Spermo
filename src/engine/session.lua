@@ -1,11 +1,13 @@
 local session = {}
 local genetics = require("src.engine.genetics")
+local clinic = require("src.engine.clinic")
+local salvage = require("src.engine.salvage")
 
-local SAVE_FILENAME = "campaign.json"
+local SAVE_FILENAME = "clinic_save.json"
 
 session.data = nil
 
--- Простой и надежный JSON-сериализатор
+-- Надежный JSON-сериализатор
 local function serialize_value(val, indent)
     indent = indent or 0
     local ind_str = string.rep("  ", indent)
@@ -85,8 +87,8 @@ local function parse_json(str)
                 pos = pos + 1
                 local esc = str:sub(pos, pos)
                 if esc == 'n' then table.insert(result, "\n")
-                elseif esc == 't' then table.insert(result, "\t")
                 elseif esc == 'r' then table.insert(result, "\r")
+                elseif esc == 't' then table.insert(result, "\t")
                 elseif esc == '"' then table.insert(result, '"')
                 elseif esc == '\\' then table.insert(result, '\\')
                 else table.insert(result, esc) end
@@ -101,9 +103,10 @@ local function parse_json(str)
 
     local function parse_number()
         local start = pos
+        if str:sub(pos, pos) == '-' then pos = pos + 1 end
         while pos <= len do
             local c = str:sub(pos, pos)
-            if (c >= '0' and c <= '9') or c == '-' or c == '.' or c == 'e' or c == 'E' or c == '+' then
+            if (c >= '0' and c <= '9') or c == '.' or c == 'e' or c == 'E' or c == '+' or c == '-' then
                 pos = pos + 1
             else
                 break
@@ -121,14 +124,17 @@ local function parse_json(str)
             return arr
         end
         while pos <= len do
-            local v = parse_value()
-            table.insert(arr, v)
+            local val = parse_value()
+            table.insert(arr, val)
             skip_whitespace()
-            if pos <= len and str:sub(pos, pos) == ']' then
+            local c = str:sub(pos, pos)
+            if c == ']' then
                 pos = pos + 1
+                return arr
+            elseif c == ',' then
+                pos = pos + 1
+            else
                 break
-            elseif pos <= len and str:sub(pos, pos) == ',' then
-                pos = pos + 1
             end
         end
         return arr
@@ -144,23 +150,21 @@ local function parse_json(str)
         end
         while pos <= len do
             skip_whitespace()
-            if pos <= len and str:sub(pos, pos) == '}' then
-                pos = pos + 1
-                break
-            end
+            if str:sub(pos, pos) ~= '"' then break end
             local key = parse_string()
             skip_whitespace()
-            if pos <= len and str:sub(pos, pos) == ':' then
-                pos = pos + 1
-            end
+            if str:sub(pos, pos) == ':' then pos = pos + 1 end
             local val = parse_value()
             obj[key] = val
             skip_whitespace()
-            if pos <= len and str:sub(pos, pos) == '}' then
+            local c = str:sub(pos, pos)
+            if c == '}' then
                 pos = pos + 1
+                return obj
+            elseif c == ',' then
+                pos = pos + 1
+            else
                 break
-            elseif pos <= len and str:sub(pos, pos) == ',' then
-                pos = pos + 1
             end
         end
         return obj
@@ -176,7 +180,7 @@ local function parse_json(str)
             return parse_object()
         elseif c == '[' then
             return parse_array()
-        elseif (c >= '0' and c <= '9') or c == '-' then
+        elseif c == '-' or (c >= '0' and c <= '9') then
             return parse_number()
         elseif str:sub(pos, pos + 3) == "true" then
             pos = pos + 4
@@ -187,9 +191,10 @@ local function parse_json(str)
         elseif str:sub(pos, pos + 3) == "null" then
             pos = pos + 4
             return nil
+        else
+            pos = pos + 1
+            return nil
         end
-        pos = pos + 1
-        return nil
     end
 
     return parse_value()
@@ -201,85 +206,45 @@ function session.has_save()
 end
 
 function session.new_game()
-    -- Стартовая колония: 2 сперматозоида (♂) и 1 зрелый ооцит (♀)
-    local s1 = genetics.create_random_specimen("SPERM-ALPHA", "sperm")
-    local s2 = genetics.create_random_specimen("SPERM-BETA", "sperm")
-    local o1 = genetics.create_random_oocyte("OVUM-AURORA")
+    -- Стартовые образцы клиники: 2 донорских сперматозоида (♂) и 1 донорский ооцит (♀)
+    local s1 = genetics.create_random_specimen("ДОНОР-АЛЬФА #101", "sperm")
+    local s2 = genetics.create_random_specimen("ДОНОР-БЕТА #102", "sperm")
+    local o1 = genetics.create_random_oocyte("ДОНОРСКИЙ ООЦИТ-АВРОРА")
 
     session.data = {
-        cycle = 1,
-        biomass = 150,
-        dna_samples = 2,
-        colony = { s1, s2, o1 },
-        squad_ids = { s1.id }, -- Отряд до 4 бойцов (только сперматозоиды)
-        selected_fighter_id = s1.id,
-        relics = {},
-        cryo_vault = {},
-        donor_market = session.generate_market(),
-        stats = {
-            total_expeditions = 0,
-            victories = 0,
-            losses = 0,
-            born_specimens = 3
+        day = 1,
+        funds = 500,              -- Рубли / Бюджет клиники (₽)
+        reputation = 50,          -- Репутация (0-100)
+        suspicion = 0,            -- Подозрение комиссии по биоэтике (0-100)
+        active_orders = clinic.generate_orders(3),
+        selected_order_idx = 1,
+        active_specimens = { s1, s2, o1 },
+        selected_specimen_idx = 1,
+        salvage_lots = salvage.generate_market_lots(5),
+        unrestored_vials = {},    -- Купленные на свалке ампулы, ожидающие центрифуги
+        cryo_archive = {},        -- Долгосрочное крио-хранилище
+        upgrades = {
+            centrifuge = true,    -- Центрифуга для очистки утиля
+            icsi_needle = true,   -- Игла ИКСИ для оплодотворения
+            laser_hatching = false -- Лазерный хетчинг
         },
-        active_expedition = nil,
-        pending_event = nil
+        stats = {
+            orders_completed = 0,
+            freaks_bred = 0,
+            total_earned = 0
+        },
+        -- Для обратной совместимости
+        colony = { s1, s2, o1 }
     }
 
     session.save()
     return session.data
 end
 
-function session.generate_market()
-    return {
-        donors = {
-            {
-                id = "egg_hyper",
-                name = "Ооцит Акрозин-плюс",
-                cost = 60,
-                desc = "Несет доминантный локус гиперактивации гидролиза (A+).",
-                chromosomes = { ch1 = "ACR_HYPER", ch2 = "MITO_NORM", ch3 = "FLA_NORM", ch4 = "MEM_DENSE" }
-            },
-            {
-                id = "egg_twin",
-                name = "Ооцит Бифлагеллярный",
-                cost = 80,
-                desc = "Редкая мутация: дает шанс родить двуххвостого бойца (F2).",
-                chromosomes = { ch1 = "ACR_NORM", ch2 = "MITO_HIGH", ch3 = "FLA_TWIN", ch4 = "MEM_DENSE" }
-            },
-            {
-                id = "egg_shield",
-                name = "Ооцит Липидный монолит",
-                cost = 50,
-                desc = "Плотный холестериновый панцирь для защиты от агрессивной среды.",
-                chromosomes = { ch1 = "ACR_NORM", ch2 = "MITO_NORM", ch3 = "FLA_NORM", ch4 = "MEM_DENSE" }
-            }
-        },
-        items = {
-            {
-                id = "glucose_broth",
-                name = "Глюкозный раствор (250 мл)",
-                cost = 35,
-                desc = "Восстанавливает 15 ХП всем особям в чашке Петри."
-            },
-            {
-                id = "bicarbonate_shield",
-                name = "Бикарбонатный концентрат",
-                cost = 45,
-                desc = "Дает +10 щита на первую стычку в следующей вылазке."
-            },
-            {
-                id = "chemical_mutagen",
-                name = "Химический мутаген",
-                cost = 70,
-                desc = "Случайно мутирует один локус выбранной особи (риск дефекта или суперсилы!)."
-            }
-        }
-    }
-end
-
 function session.save()
     if not session.data then return false end
+    -- Синхронизируем colony для совместимости
+    session.data.colony = session.data.active_specimens
     local serialized = serialize_value(session.data)
     local ok, err = love.filesystem.write(SAVE_FILENAME, serialized)
     return ok, err
@@ -291,230 +256,183 @@ function session.load()
     if not contents then return false, err end
 
     local loaded = parse_json(contents)
-    if loaded and loaded.colony then
+    if loaded and loaded.active_specimens then
         session.data = loaded
-        session.data.cryo_vault = session.data.cryo_vault or {}
-        session.data.squad_ids = session.data.squad_ids or {}
-        session.data.relics = session.data.relics or {}
+        session.data.salvage_lots = session.data.salvage_lots or salvage.generate_market_lots(5)
+        session.data.unrestored_vials = session.data.unrestored_vials or {}
+        session.data.cryo_archive = session.data.cryo_archive or {}
+        session.data.active_orders = session.data.active_orders or clinic.generate_orders(3)
 
-        for _, spec in ipairs(session.data.colony) do
-            if not spec.unit_type then
-                if spec.name and spec.name:match("^OVUM") then
-                    spec.unit_type = "oocyte"
-                    spec.gender = "female"
-                else
-                    spec.unit_type = "sperm"
-                    spec.gender = "male"
-                end
-            end
-            spec.phenotype = genetics.calculate_phenotype(spec)
-            spec.class_title = genetics.determine_class(spec)
-        end
-        for _, spec in ipairs(session.data.cryo_vault) do
-            if not spec.unit_type then
-                spec.unit_type = (spec.name and spec.name:match("^OVUM")) and "oocyte" or "sperm"
-            end
+        for _, spec in ipairs(session.data.active_specimens) do
             spec.phenotype = genetics.calculate_phenotype(spec)
             spec.class_title = genetics.determine_class(spec)
         end
 
-        -- Валидация отряда
-        if #session.data.squad_ids == 0 and #session.data.colony > 0 then
-            table.insert(session.data.squad_ids, session.data.colony[1].id)
-        end
-        session.data.selected_fighter_id = session.data.squad_ids[1] or (session.data.colony[1] and session.data.colony[1].id)
-
+        session.data.colony = session.data.active_specimens
         return true
     end
     return false, "Некорректный формат сохранения"
 end
 
--- ==================== МЕНЕДЖМЕНТ ОТРЯДА (ДО 4 БОЙЦОВ) ====================
-function session.get_squad()
-    if not session.data or not session.data.colony then return {} end
-    session.data.squad_ids = session.data.squad_ids or {}
+-- ==================== ИГРОВЫЕ ОПЕРАЦИИ ЭМБРИОЛОГА ====================
 
-    local squad = {}
-    local id_map = {}
-    for _, id in ipairs(session.data.squad_ids) do
-        id_map[id] = true
+-- 1. Лабораторное оплодотворение методом ИКСИ (Введение сперматозоида в яйцеклетку)
+function session.perform_icsi(sperm_spec, ovum_spec)
+    if not sperm_spec or not ovum_spec then
+        return nil, "Необходимо выбрать сперматозоид ♂ и яйцеклетку ♀!"
+    end
+    if sperm_spec.unit_type ~= "sperm" or ovum_spec.unit_type ~= "oocyte" then
+        return nil, "ИКСИ требует сперматозоид ♂ и ооцит ♀!"
     end
 
-    for _, spec in ipairs(session.data.colony) do
-        -- В боевой отряд допускаются исключительно сперматозоиды ♂
-        if id_map[spec.id] and spec.unit_type ~= "oocyte" then
-            table.insert(squad, spec)
-        end
+    local embryo = genetics.breed(sperm_spec, ovum_spec)
+    embryo.name = "ЗИГОТА-" .. embryo.name
+    embryo.is_embryo = true
+
+    table.insert(session.data.active_specimens, 1, embryo)
+    session.data.selected_specimen_idx = 1
+
+    if embryo.freak_type then
+        session.data.stats.freaks_bred = (session.data.stats.freaks_bred or 0) + 1
     end
 
-    -- Если отряд опустел, добавляем первого доступного сперматозоида
-    if #squad == 0 and #session.data.colony > 0 then
-        for _, spec in ipairs(session.data.colony) do
-            if spec.unit_type ~= "oocyte" then
-                table.insert(squad, spec)
-                session.data.squad_ids = { spec.id }
-                session.data.selected_fighter_id = spec.id
+    session.save()
+    return embryo
+end
+
+-- 2. Покупка архивной ампулы на био-свалке
+function session.buy_salvage_lot(lot_target)
+    local lot = nil
+    if type(lot_target) == "number" then
+        lot = session.data.salvage_lots[lot_target]
+    else
+        for _, l in ipairs(session.data.salvage_lots or {}) do
+            if l.id == lot_target then
+                lot = l
                 break
             end
         end
     end
 
-    return squad
-end
+    if not lot then return false, "Лот не найден" end
+    if lot.is_bought then return false, "Лот уже выкуплен" end
+    if session.data.funds < lot.cost then return false, "Недостаточно средств (нужно: " .. lot.cost .. " ₽)" end
 
-function session.is_in_squad(spec_id)
-    if not session.data or not session.data.squad_ids then return false end
-    for _, id in ipairs(session.data.squad_ids) do
-        if id == spec_id then return true end
-    end
-    return false
-end
-
-function session.add_to_squad(spec_id)
-    if not session.data then return false, "Нет сессии" end
-    session.data.squad_ids = session.data.squad_ids or {}
-    if #session.data.squad_ids >= 4 then return false, "Отряд уже укомплектован (макс. 4)!" end
-    if session.is_in_squad(spec_id) then return false, "Особь уже в составе отряда!" end
-
-    -- Проверка: только сперматозоиды допускаются в шлюз вылазки
-    local target_spec = nil
-    for _, s in ipairs(session.data.colony) do
-        if s.id == spec_id then target_spec = s; break end
-    end
-    if target_spec and target_spec.unit_type == "oocyte" then
-        return false, "Яйцеклетки остаются в чашке Петри! В вылазку идут только сперматозоиды ♂."
-    end
-
-    table.insert(session.data.squad_ids, spec_id)
-    session.data.selected_fighter_id = session.data.squad_ids[1]
+    session.data.funds = session.data.funds - lot.cost
+    lot.is_bought = true
+    table.insert(session.data.unrestored_vials, lot)
     session.save()
-    return true
+    return true, lot
 end
 
-function session.remove_from_squad(spec_id)
-    if not session.data or not session.data.squad_ids then return false end
-    for i, id in ipairs(session.data.squad_ids) do
-        if id == spec_id then
-            table.remove(session.data.squad_ids, i)
+-- 3. Очистка и центрифугирование архивной ампулы со свалки
+function session.restore_vial(vial_target)
+    local vial_idx = 1
+    if type(vial_target) == "number" then
+        vial_idx = vial_target
+    else
+        for idx, v in ipairs(session.data.unrestored_vials or {}) do
+            if v.id == vial_target then
+                vial_idx = idx
+                break
+            end
+        end
+    end
+
+    local vial = session.data.unrestored_vials[vial_idx]
+    if not vial or not vial.sample then return false, "Ампула не найдена" end
+
+    genetics.clean_and_restore_sample(vial.sample)
+    local restored_spec = vial.sample
+
+    table.remove(session.data.unrestored_vials, vial_idx)
+    table.insert(session.data.active_specimens, 1, restored_spec)
+    session.data.selected_specimen_idx = 1
+
+    session.save()
+    return true, restored_spec
+end
+
+-- 4. Сдача образца по заказу клиента
+function session.submit_order(order_target, specimen)
+    local order = nil
+    if type(order_target) == "number" then
+        order = session.data.active_orders[order_target]
+    else
+        for _, o in ipairs(session.data.active_orders or {}) do
+            if o.id == order_target then
+                order = o
+                break
+            end
+        end
+    end
+
+    if not order or order.status ~= "active" then
+        return false, "Заказ не найден или уже закрыт"
+    end
+    if not specimen then
+        return false, "Выберите особь для сдачи клиенту!"
+    end
+
+    local score, matches, failures = genetics.evaluate_compliance(specimen, order.requirements)
+    if score < 50 then
+        return false, "Образец не соответствует минимальным требованиям ТЗ (соответствие: " .. score .. "%)!"
+    end
+
+    -- Начисление гонорара с учетом коэффициента соответствия
+    local mult = score / 100.0
+    local earned = math.floor(order.reward_money * mult)
+    session.data.funds = session.data.funds + earned
+    session.data.reputation = math.min(100, math.max(0, session.data.reputation + order.reward_rep))
+    session.data.stats.orders_completed = (session.data.stats.orders_completed or 0) + 1
+    session.data.stats.total_earned = (session.data.stats.total_earned or 0) + earned
+
+    if order.is_illegal then
+        session.data.suspicion = math.min(100, session.data.suspicion + 25)
+    else
+        session.data.suspicion = math.max(0, session.data.suspicion - 10)
+    end
+
+    order.status = "completed"
+
+    -- Удаляем сданный образец из активного лотка (передан заказчику)
+    for idx, s in ipairs(session.data.active_specimens) do
+        if s.id == specimen.id then
+            table.remove(session.data.active_specimens, idx)
+            session.data.selected_specimen_idx = math.max(1, idx - 1)
             break
         end
     end
-    if session.data.selected_fighter_id == spec_id then
-        session.data.selected_fighter_id = session.data.squad_ids[1] or (session.data.colony[1] and session.data.colony[1].id)
-    end
-    session.save()
-    return true
-end
-
-function session.toggle_squad(spec_id)
-    if session.is_in_squad(spec_id) then
-        return session.remove_from_squad(spec_id)
-    else
-        return session.add_to_squad(spec_id)
-    end
-end
-
-function session.get_selected_fighter()
-    local squad = session.get_squad()
-    if #squad > 0 then return squad[1] end
-    if session.data and session.data.colony and #session.data.colony > 0 then
-        return session.data.colony[1]
-    end
-    return nil
-end
-
--- Заморозка особи в крио-хранилище (25 БМ)
-function session.freeze_specimen(idx)
-    local colony = session.data.colony
-    if not colony or not colony[idx] then return false end
-    if session.data.biomass < 25 then return false, "Недостаточно биомассы (нужно 25 БМ)" end
-
-    session.data.biomass = session.data.biomass - 25
-    local spec = table.remove(colony, idx)
-    table.insert(session.data.cryo_vault, spec)
-
-    -- Удаляем из отряда если особь была экипирована
-    session.remove_from_squad(spec.id)
 
     session.save()
-    return true
+    return true, earned, score, matches
 end
 
--- Разморозка особи из крио-хранилища
-function session.unfreeze_specimen(idx)
-    local cryo = session.data.cryo_vault
-    local colony = session.data.colony
-    if not cryo or not cryo[idx] then return false end
-    if #colony >= 10 then return false, "Чашка Петри переполнена" end
+-- 5. Переход на следующий рабочий день
+function session.advance_day()
+    session.data.day = session.data.day + 1
+    local rent = 30
+    session.data.funds = math.max(0, session.data.funds - rent)
 
-    local spec = table.remove(cryo, idx)
-    table.insert(colony, spec)
-    session.save()
-    return true
-end
+    -- Обновление лотов на био-свалке
+    session.data.salvage_lots = salvage.generate_market_lots(5)
 
--- Редкие случайные лабораторные события (Нечастые: шанс 20%)
-function session.roll_event()
-    local events = {
-        {
-            id = "glucose_bloom",
-            title = "ВСПЛЕСК ФРУКТУРНОЙ СРЕДЫ",
-            desc = "В инкубатор поступила партия концентрированного сахара. Все особи в чашке восстановили 12 ХП и получили прилив сил (+3 Гц)!",
-            action = function()
-                for _, s in ipairs(session.data.colony) do
-                    s.phenotype.current_hp = math.min(s.phenotype.max_hp, (s.phenotype.current_hp or s.phenotype.max_hp) + 12)
-                    s.phenotype.frequency_hz = (s.phenotype.frequency_hz or 30) + 3
-                end
-            end
-        },
-        {
-            id = "contraband_oocyte",
-            title = "КОНТРАБАНДНЫЙ ДОНОРСКИЙ ООЦИТ",
-            desc = "Подпольный био-дилер тайно доставил уникальный ооцит прямо в инкубатор со скидкой 50%!",
-            action = function()
-                local egg = {
-                    id = "contraband_egg",
-                    name = "Ооцит 'Мутагенный Прорыв'",
-                    cost = 25,
-                    desc = "Редчайший локус сцепленных генов гиперактивации.",
-                    chromosomes = { ch1 = "ACR_HYPER", ch2 = "MITO_HIGH", ch3 = "FLA_TWIN", ch4 = "MEM_CHEMO" }
-                }
-                table.insert(session.data.donor_market.donors, 1, egg)
-            end
-        },
-        {
-            id = "bacterial_fermentation",
-            title = "СИМБИОТИЧЕСКОЕ БРОЖЕНИЕ",
-            desc = "Полезные лактобактерии выработали избыточный субстрат. Колония синтезировала +35 биомассы!",
-            action = function()
-                session.data.biomass = session.data.biomass + 35
-            end
-        }
-    }
-    return events[math.random(#events)]
-end
-
--- Переход на новый цикл (старение + регенерация + редкое событие)
-function session.advance_cycle()
-    if not session.data then return end
-    session.data.cycle = session.data.cycle + 1
-    session.data.donor_market = session.generate_market()
-
-    -- 1. Старение и регенерация в колонии
-    for _, spec in ipairs(session.data.colony) do
-        spec.age = (spec.age or 0) + 1
-        spec.phenotype.current_hp = math.min(spec.phenotype.max_hp, (spec.phenotype.current_hp or spec.phenotype.max_hp) + 6)
+    -- Обновление доски заказов: заменяем завершенные новыми клиентами
+    for idx = #session.data.active_orders, 1, -1 do
+        if session.data.active_orders[idx].status == "completed" then
+            table.remove(session.data.active_orders, idx)
+        end
     end
 
-    -- 2. Нечастое случайное событие (шанс 20% - примерно раз в 5 циклов)
-    if math.random() < 0.20 then
-        session.data.pending_event = session.roll_event()
-        if session.data.pending_event and session.data.pending_event.action then
-            session.data.pending_event.action()
+    while #session.data.active_orders < 3 do
+        local new_orders = clinic.generate_orders(1)
+        if new_orders[1] then
+            table.insert(session.data.active_orders, new_orders[1])
         end
     end
 
     session.save()
+    return { day = session.data.day, rent_paid = rent }
 end
 
 return session

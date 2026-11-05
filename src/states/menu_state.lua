@@ -13,15 +13,15 @@ function menu_state:enter()
     if self.has_save then
         table.insert(self.buttons, {
             id = "continue",
-            text = "ПРОДОЛЖИТЬ ИГРУ",
-            sub = "Вернуться в текущую лабораторию и продолжить кампанию"
+            text = "ПРОДОЛЖИТЬ СМЕНУ",
+            sub = "Вернуться к текущим пациентам, микроскопу и архивным образцам"
         })
     end
 
     table.insert(self.buttons, {
         id = "new_game",
-        text = "НОВАЯ ИГРА",
-        sub = self.has_save and "Начать новую кампанию (перезапишет текущую)" or "Создать новую чашку Петри и начать селекцию"
+        text = "ОТКРЫТЬ ЛАБОРАТОРИЮ",
+        sub = self.has_save and "Начать новую врачебную практику (перезапишет текущую)" or "Открыть частную клинику репродукции и принять первых клиентов"
     })
 
     table.insert(self.buttons, {
@@ -152,11 +152,11 @@ function menu_state:draw()
 
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(0.9, 0.7, 0.3, 0.95)
-    love.graphics.printf("CELLULAR GENETICS & COMBAT", 0, 140, 1280, "center")
+    love.graphics.printf("РЕПРОДУКТИВНАЯ КЛИНИКА & БИО-СЕЛЕКЦИЯ", 0, 140, 1280, "center")
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(0.6, 0.8, 0.95, 0.8)
-    love.graphics.printf("ГЕНЕТИЧЕСКИЙ СИМУЛЯТОР СЕЛЕКЦИИ И КАРТОЧНЫХ ВЫЛАЗОК", 0, 170, 1280, "center")
+    love.graphics.printf("СИМУЛЯТОР МЕДИЦИНСКОЙ ГЕНЕТИКИ, ЭКО И СКЛАДА АРХИВНЫХ АМПУЛ", 0, 170, 1280, "center")
 
     -- 3. Кнопки меню
     local btn_w = 460
@@ -214,14 +214,14 @@ function menu_state:activate_button(idx)
     if btn.id == "continue" then
         local ok = session.load()
         if ok then
-            state_manager.switch("hub")
+            state_manager.switch("lab")
         else
             session.new_game()
-            state_manager.switch("hub")
+            state_manager.switch("lab")
         end
     elseif btn.id == "new_game" then
         session.new_game()
-        state_manager.switch("hub")
+        state_manager.switch("lab")
     elseif btn.id == "settings" then
         state_manager.switch("settings")
     elseif btn.id == "quit" then

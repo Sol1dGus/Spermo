@@ -308,7 +308,149 @@ function genetics.calculate_phenotype(specimen)
         table.insert(p.deck, "titanic_ram")
     end
 
+    -- Расчет клинических лабораторных показателей
+    p.frequency_hz = is_oocyte and 0 or ((ch3 and ch3.frequency_hz) or 30)
+    p.motility = p.frequency_hz
+    p.acrosome_potency = 10 + (p.bonus_dmg * 2)
+    p.membrane_barrier = (ch4 and ch4.shield or 0) + (is_oocyte and 10 or 4)
+    p.atp_synthesis = 1 + p.bonus_atp
+    p.kruger_normality = math.max(25, 96 - (specimen.inbreeding or 0) * 0.45 - (specimen.freak_type and 20 or 0))
+    p.dna_fragmentation = specimen.dna_fragmentation or math.random(5, 14)
+
     return p
+end
+
+-- 6. Создание архивного/поврежденного образца со свалки био-утиля (Car Mechanic Simulator style)
+function genetics.create_salvage_sample(name, year, condition)
+    condition = condition or math.random(25, 75) -- % сохранности
+    year = year or math.random(1972, 1998)
+
+    local is_oocyte = (math.random() < 0.3)
+    local sample = is_oocyte and genetics.create_random_oocyte(name) or genetics.create_random_specimen(name, "sperm")
+
+    sample.is_salvaged = true
+    sample.condition = condition
+    sample.origin_year = year
+    sample.dna_fragmentation = math.max(15, 100 - condition)
+    sample.is_contaminated = (condition < 50 and math.random() < 0.6)
+    sample.is_restored = false
+
+    -- Частично скрытые локусы для интриги
+    sample.hidden_loci = {}
+    local loci_keys = {"ch1", "ch2", "ch3", "ch4"}
+    local hidden_count = (condition < 40 and 2) or (condition < 70 and 1) or 0
+    for i = 1, hidden_count do
+        local rand_k = loci_keys[math.random(#loci_keys)]
+        sample.hidden_loci[rand_k] = true
+    end
+
+    sample.phenotype = genetics.calculate_phenotype(sample)
+    sample.class_title = genetics.determine_class(sample)
+    return sample
+end
+
+-- 7. Реставрация и очистка списанного образца в лаборатории (Центрифуга + Промывка)
+function genetics.clean_and_restore_sample(sample)
+    if not sample then return false, "Нет образца" end
+    sample.condition = 100
+    sample.dna_fragmentation = math.random(5, 12)
+    sample.is_contaminated = false
+    sample.hidden_loci = {} -- Все локусы раскрываются!
+    sample.is_restored = true
+    sample.phenotype = genetics.calculate_phenotype(sample)
+    sample.class_title = genetics.determine_class(sample)
+    return true
+end
+
+-- 8. Экспертиза соответствия образца ТЗ заказа клиента
+function genetics.evaluate_compliance(specimen, requirements)
+    if not specimen or not requirements then return 0, {}, {"Нет данных"} end
+
+    local matches = {}
+    local failures = {}
+    local total_reqs = 0
+    local passed_reqs = 0
+
+    local p = specimen.phenotype or genetics.calculate_phenotype(specimen)
+
+    -- 1. Требование по минимальной мотильности
+    if requirements.min_motility then
+        total_reqs = total_reqs + 1
+        if p.frequency_hz >= requirements.min_motility then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Мотильность жгутика: " .. p.frequency_hz .. " Гц (ТЗ: >=" .. requirements.min_motility .. ")")
+        else
+            table.insert(failures, "Недостаточная мотильность: " .. p.frequency_hz .. " Гц (нужно >=" .. requirements.min_motility .. ")")
+        end
+    end
+
+    -- 2. Требование по силе акросомы
+    if requirements.min_acrosome then
+        total_reqs = total_reqs + 1
+        if p.acrosome_potency >= requirements.min_acrosome then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Акросомный гидролиз: " .. p.acrosome_potency .. " ед. (ТЗ: >=" .. requirements.min_acrosome .. ")")
+        else
+            table.insert(failures, "Слабая акросома: " .. p.acrosome_potency .. " ед. (нужно >=" .. requirements.min_acrosome .. ")")
+        end
+    end
+
+    -- 3. Требование по мембране
+    if requirements.min_barrier then
+        total_reqs = total_reqs + 1
+        if p.membrane_barrier >= requirements.min_barrier then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Липидный барьер: " .. p.membrane_barrier .. " мкм (ТЗ: >=" .. requirements.min_barrier .. ")")
+        else
+            table.insert(failures, "Мембрана слишком тонкая: " .. p.membrane_barrier .. " мкм (нужно >=" .. requirements.min_barrier .. ")")
+        end
+    end
+
+    -- 4. Требование по нормальности по Крюгеру
+    if requirements.min_kruger then
+        total_reqs = total_reqs + 1
+        if p.kruger_normality >= requirements.min_kruger then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Морфология по Крюгеру: " .. math.floor(p.kruger_normality) .. "% (ТЗ: >=" .. requirements.min_kruger .. "%)")
+        else
+            table.insert(failures, "Морфологический брак: " .. math.floor(p.kruger_normality) .. "% (нужно >=" .. requirements.min_kruger .. "%)")
+        end
+    end
+
+    -- 5. Требование по конкретному локусу (например, CH4 == MEM_DENSE)
+    if requirements.required_locus then
+        local locus_key = requirements.required_locus.locus -- "ch1", "ch2", etc.
+        local expected = requirements.required_locus.allele
+        total_reqs = total_reqs + 1
+        if specimen.chromosomes and specimen.chromosomes[locus_key] == expected then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Генетический маркер: " .. expected .. " подтвержден")
+        else
+            table.insert(failures, "Отсутствует требуемый аллель: " .. expected)
+        end
+    end
+
+    -- 6. Запрет мутаций/уродств (или наоборот требование)
+    if requirements.no_defects then
+        total_reqs = total_reqs + 1
+        if not specimen.freak_type then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Тератозооспермия отсутствует (чистая форма)")
+        else
+            table.insert(failures, "Обнаружено генетическое уродство (" .. specimen.freak_type .. ")!")
+        end
+    elseif requirements.require_freak then
+        total_reqs = total_reqs + 1
+        if specimen.freak_type == requirements.require_freak then
+            passed_reqs = passed_reqs + 1
+            table.insert(matches, "Требуемая аномалия (" .. requirements.require_freak .. ") успешно выведена!")
+        else
+            table.insert(failures, "Клиент требует аномалию: " .. requirements.require_freak)
+        end
+    end
+
+    local score = (total_reqs > 0) and math.floor((passed_reqs / total_reqs) * 100) or 100
+    return score, matches, failures
 end
 
 -- 6. Мейоз, Кроссинговер и Инбридинг (Mewgenics Breeding)

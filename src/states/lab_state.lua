@@ -1,259 +1,480 @@
 local lab_state = {}
-local genetics = require("src.engine.genetics")
 local fonts = require("src.ui.fonts")
+local state_manager = require("src.states.state_manager")
+local session = require("src.engine.session")
+local theme = require("src.ui.theme")
+local avatar = require("src.ui.avatar")
+local genetics = require("src.engine.genetics")
 
-function lab_state:enter(current_specimen)
-    self.specimens = self.specimens or {
-        current_specimen or genetics.create_random_specimen("SPERM-ALPHA"),
-        genetics.create_random_specimen("SPERM-BETA"),
-        genetics.create_random_specimen("SPERM-GAMMA")
-    }
-    self.selected_idx = 1
-    self.donor_egg = {
-        name = "Ооцит-донор 01",
-        chromosomes = {
-            ch1 = "ACR_HYPER",
-            ch2 = "MITO_HIGH",
-            ch3 = "FLA_TWIN",
-            ch4 = "MEM_CHEMO"
-        }
-    }
-    self.status_msg = "Выберите особь для анализа или скрещивания."
+function lab_state:enter()
+    if not session.data then
+        session.new_game()
+    end
+
+    self.selected_sperm_idx = 1
+    self.selected_ovum_idx = nil
+    self.time = 0
+    self.status_msg = "Лаборатория готова к работе. Выберите образец для осмотра в микроскопе."
+    self.inspect_zoom = 1.25
+
+    -- Автовыбор первого сперматозоида и ооцита
+    self:auto_select_specimens()
+end
+
+function lab_state:auto_select_specimens()
+    local list = session.data and session.data.active_specimens or {}
+    for idx, s in ipairs(list) do
+        if s.unit_type == "sperm" and not self.selected_sperm_idx then
+            self.selected_sperm_idx = idx
+        elseif s.unit_type == "oocyte" and not self.selected_ovum_idx then
+            self.selected_ovum_idx = idx
+        end
+    end
+    if not self.selected_sperm_idx and #list > 0 then
+        self.selected_sperm_idx = 1
+    end
+end
+
+function lab_state:get_current_inspected_specimen()
+    local list = session.data and session.data.active_specimens or {}
+    local sel_idx = session.data and session.data.selected_specimen_idx or 1
+    return list[sel_idx] or list[1]
 end
 
 function lab_state:update(dt)
+    self.time = self.time + dt
 end
 
 function lab_state:draw()
-    -- 1. Лабораторный фон
-    love.graphics.setColor(0.04, 0.07, 0.11, 1)
+    -- 1. Лабораторный фон рабочего стола
+    love.graphics.setColor(theme.bg_desk)
     love.graphics.rectangle("fill", 0, 0, 1280, 720)
 
-    -- Декоративная сетка
-    love.graphics.setColor(0.08, 0.14, 0.22, 0.5)
-    love.graphics.setLineWidth(1)
-    for gx = 0, 1280, 80 do love.graphics.line(gx, 0, gx, 720) end
-    for gy = 0, 720, 80 do love.graphics.line(0, gy, 1280, gy) end
+    -- 2. Верхняя сервисная панель клиники
+    self:draw_header_bar()
 
-    -- 2. Верхний заголовок
-    love.graphics.setColor(0.08, 0.12, 0.18, 0.95)
-    love.graphics.rectangle("fill", 0, 0, 1280, 55)
-    love.graphics.setColor(0.2, 0.6, 0.9, 0.8)
-    love.graphics.line(0, 55, 1280, 55)
+    -- 3. Левая панель: Папка клиента и ТЗ заказа
+    self:draw_client_dossier_panel()
+
+    -- 4. Центральная панель: Большой окуляр микроскопа и кариотип
+    self:draw_microscope_ocular_panel()
+
+    -- 5. Правая панель: Лоток образцов, центрифуга и инструменты
+    self:draw_workstation_tools_panel()
+
+    -- 6. Нижняя строка статуса эмбриолога
+    self:draw_status_bar()
+end
+
+function lab_state:draw_header_bar()
+    love.graphics.setColor(theme.bg_paper)
+    love.graphics.rectangle("fill", 0, 0, 1280, 56)
+    love.graphics.setColor(theme.teal)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(0, 56, 1280, 56)
 
     love.graphics.setFont(fonts.title)
-    love.graphics.setColor(0.2, 0.9, 1.0, 1)
-    love.graphics.print("ИНКУБАТОР СЕЛЕКЦИИ И ГЕНЕТИКИ (ЧАШКА ПЕТРИ)", 30, 14)
-
-    -- Кнопка "В Меню"
-    love.graphics.setColor(0.12, 0.22, 0.35, 0.9)
-    love.graphics.rectangle("fill", 870, 10, 160, 36, 6, 6)
-    love.graphics.setColor(0.25, 0.65, 0.9, 1)
-    love.graphics.rectangle("line", 870, 10, 160, 36, 6, 6)
-    love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.printf("В МЕНЮ [Esc]", 870, 18, 160, "center")
-
-    -- Кнопка в бой
-    love.graphics.setColor(0.1, 0.7, 0.4, 0.9)
-    love.graphics.rectangle("fill", 1050, 10, 205, 36, 6, 6)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(fonts.bold)
-    love.graphics.printf("НАЧАТЬ БОЙ [Space]", 1050, 18, 205, "center")
-
-    -- 3. Левая колонка: Пул особей (Колония)
-    love.graphics.setColor(0.06, 0.10, 0.16, 0.95)
-    love.graphics.rectangle("fill", 30, 80, 320, 610, 8, 8)
-    love.graphics.setColor(0.3, 0.6, 0.8, 0.8)
-    love.graphics.rectangle("line", 30, 80, 320, 610, 8, 8)
+    love.graphics.setColor(theme.teal)
+    love.graphics.print("ЭКО-КЛИНИКА «NOVAGEN»", 25, 12)
 
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("КОЛОНИЯ В ИНКУБАТОРЕ (" .. #self.specimens .. "):", 45, 95)
+    love.graphics.setColor(theme.ink_primary)
+    love.graphics.print("ДЕНЬ: " .. (session.data and session.data.day or 1), 380, 18)
 
-    for idx, spec in ipairs(self.specimens) do
-        local sy = 130 + (idx - 1) * 75
-        local is_sel = (idx == self.selected_idx)
+    love.graphics.setColor(theme.amber_glass)
+    love.graphics.print("БЮДЖЕТ: " .. (session.data and session.data.funds or 0) .. " ₽", 510, 18)
 
-        if is_sel then
-            love.graphics.setColor(0.12, 0.4, 0.6, 0.95)
-        else
-            love.graphics.setColor(0.08, 0.14, 0.22, 0.8)
-        end
-        love.graphics.rectangle("fill", 45, sy, 290, 65, 6, 6)
-        love.graphics.setColor(is_sel and {0.2, 0.9, 1.0} or {0.3, 0.5, 0.7})
-        love.graphics.rectangle("line", 45, sy, 290, 65, 6, 6)
+    love.graphics.setColor(theme.teal)
+    love.graphics.print("РЕПУТАЦИЯ: " .. (session.data and session.data.reputation or 50) .. "/100", 690, 18)
 
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print(spec.name .. " (Gen " .. spec.generation .. ")", 55, sy + 10)
-        
+    -- Кнопка "На Био-Свалку" (Car Mechanic Simulator style)
+    theme.draw_button("АРХИВ БИО-УТИЛЯ", 880, 10, 190, 36, false, "amber")
+
+    -- Кнопка "Завершить день"
+    theme.draw_button("СМЕНА ДНЯ", 1085, 10, 175, 36, false, "secondary")
+end
+
+function lab_state:draw_client_dossier_panel()
+    local px = 20
+    local py = 70
+    local pw = 380
+    local ph = 590
+
+    theme.draw_paper_sheet(px, py, pw, ph, "ДОСЬЕ ЗАКАЗА ПАЦИЕНТА")
+
+    local orders = session.data and session.data.active_orders or {}
+    local cur_idx = session.data and session.data.selected_order_idx or 1
+    local order = orders[cur_idx]
+
+    -- Вкладки заказов сверху папки
+    local tab_w = 110
+    for idx, ord in ipairs(orders) do
+        local tx = px + 16 + (idx - 1) * (tab_w + 6)
+        local ty = py + 42
+        local is_sel = (idx == cur_idx)
+        love.graphics.setColor(is_sel and theme.teal or {0.82, 0.85, 0.84, 0.9})
+        love.graphics.rectangle("fill", tx, ty, tab_w, 24, 3, 3)
         love.graphics.setFont(fonts.small)
-        love.graphics.setColor(0.7, 0.85, 1, 0.95)
-        love.graphics.print("ХП: " .. spec.phenotype.max_hp .. " | " .. spec.phenotype.frequency_hz .. " Гц | Карт: " .. #spec.phenotype.deck, 55, sy + 36)
+        love.graphics.setColor(is_sel and {1, 1, 1, 1} or theme.ink_muted)
+        love.graphics.printf("Дело #" .. idx, tx, ty + 4, tab_w, "center")
     end
 
-    -- 4. Центральная колонка: Анализ кариотипа и Спермограмма
-    local cur = self.specimens[self.selected_idx]
-    if cur then
-        love.graphics.setColor(0.06, 0.10, 0.16, 0.95)
-        love.graphics.rectangle("fill", 380, 80, 480, 610, 8, 8)
-        love.graphics.setColor(0.3, 0.6, 0.8, 0.8)
-        love.graphics.rectangle("line", 380, 80, 480, 610, 8, 8)
+    if not order then
+        love.graphics.setFont(fonts.regular)
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.printf("Все заказы на сегодня выполнены!\nНажмите [СМЕНА ДНЯ], чтобы принять новых пациентов.", px + 20, py + 200, pw - 40, "center")
+        return
+    end
 
+    -- Информация о клиенте
+    local cy = py + 76
+    love.graphics.setFont(fonts.title)
+    love.graphics.setColor(order.is_illegal and theme.crimson_stamp or theme.teal)
+    love.graphics.print(order.client_name, px + 20, cy)
+
+    cy = cy + 24
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.ink_muted)
+    love.graphics.print(order.title .. " • " .. order.category, px + 20, cy)
+
+    -- Цитата клиента
+    cy = cy + 28
+    love.graphics.setColor(0.92, 0.90, 0.84, 0.6)
+    love.graphics.rectangle("fill", px + 18, cy, pw - 36, 68, 4, 4)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(theme.ink_primary)
+    love.graphics.printf(order.dialogue, px + 26, cy + 8, pw - 52, "left")
+
+    -- Чек-лист требований ТЗ (Автоматическая сверка с образцом под микроскопом!)
+    cy = cy + 78
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.teal)
+    love.graphics.print("ТРЕБОВАНИЯ К ЭМБРИОНУ / ОБРАЗЦУ:", px + 20, cy)
+
+    local cur_spec = self:get_current_inspected_specimen()
+    local score, matches, failures = genetics.evaluate_compliance(cur_spec, order.requirements)
+
+    cy = cy + 22
+    for _, match_txt in ipairs(matches) do
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.green_stamp)
+        love.graphics.print("[✓] " .. match_txt, px + 20, cy)
+        cy = cy + 18
+    end
+
+    for _, fail_txt in ipairs(failures) do
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.crimson_stamp)
+        love.graphics.print("[✗] " .. fail_txt, px + 20, cy)
+        cy = cy + 18
+    end
+
+    -- Шкала соответствия ТЗ
+    local bar_y = py + ph - 110
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.ink_primary)
+    love.graphics.print("СООТВЕТСТВИЕ ТЗ: " .. score .. "%", px + 20, bar_y - 20)
+
+    love.graphics.setColor(0.2, 0.25, 0.3, 0.8)
+    love.graphics.rectangle("fill", px + 20, bar_y, pw - 40, 10, 3, 3)
+    local score_col = (score >= 80 and {0.2, 0.7, 0.3}) or (score >= 60 and {0.8, 0.6, 0.1}) or {0.8, 0.2, 0.2}
+    love.graphics.setColor(score_col)
+    love.graphics.rectangle("fill", px + 20, bar_y, (pw - 40) * (score / 100), 10, 3, 3)
+
+    -- Кнопка сдачи заказа
+    local btn_y = py + ph - 75
+    local can_submit = (score >= 60 and cur_spec)
+    local btn_label = can_submit and ("СДАТЬ ОБРАЗЕЦ (" .. math.floor(order.reward_money * (score/100)) .. " ₽)") or "НЕ СООТВЕТСТВУЕТ ТЗ"
+    theme.draw_button(btn_label, px + 20, btn_y, pw - 40, 44, false, can_submit and "primary" or "secondary")
+end
+
+function lab_state:draw_microscope_ocular_panel()
+    local ox = 420
+    local oy = 70
+    local ow = 450
+    local oh = 590
+
+    -- Корпус микроскопа из темного эмалированного чугуна
+    love.graphics.setColor(0.08, 0.11, 0.14, 0.98)
+    love.graphics.rectangle("fill", ox, oy, ow, oh, 10, 10)
+    love.graphics.setColor(theme.brass)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", ox, oy, ow, oh, 10, 10)
+
+    -- Шапка окуляра
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.brass)
+    love.graphics.print("ОКУЛЯР МИКРОСКОПА (УВЕЛИЧЕНИЕ x1000)", ox + 20, oy + 14)
+
+    -- Большой круглый окуляр
+    local ocular_cx = ox + ow / 2
+    local ocular_cy = oy + 185
+    local ocular_r = 145
+
+    -- Внешняя латунная оправа
+    love.graphics.setColor(theme.brass)
+    love.graphics.setLineWidth(4)
+    love.graphics.circle("line", ocular_cx, ocular_cy, ocular_r + 4)
+
+    -- Темнота предметного стекла
+    love.graphics.setColor(theme.bg_ocular)
+    love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r)
+
+    -- Сетка калибровки микрометра
+    love.graphics.setColor(0.12, 0.25, 0.35, 0.4)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(ocular_cx - ocular_r, ocular_cy, ocular_cx + ocular_r, ocular_cy)
+    love.graphics.line(ocular_cx, ocular_cy - ocular_r, ocular_cx, ocular_cy + ocular_r)
+    love.graphics.circle("line", ocular_cx, ocular_cy, 60)
+    love.graphics.circle("line", ocular_cx, ocular_cy, 110)
+
+    -- Рендеринг живой клетки под микроскопом через процедурный аватар!
+    local cur_spec = self:get_current_inspected_specimen()
+    if cur_spec then
+        love.graphics.push()
+        -- Ножничный клиппинг по окуляру
+        avatar.draw(cur_spec, ocular_cx, ocular_cy, self.inspect_zoom, self.time)
+        love.graphics.pop()
+    else
+        love.graphics.setFont(fonts.regular)
+        love.graphics.setColor(theme.text_dim)
+        love.graphics.printf("Предметное стекло пусто.\nВыберите особь из лотка справа.", ocular_cx - 120, ocular_cy - 20, 240, "center")
+    end
+
+    -- 3. Досье клетки под окуляром
+    local dy = oy + 355
+    if cur_spec then
+        local is_oocyte = (cur_spec.unit_type == "oocyte")
         love.graphics.setFont(fonts.title)
-        love.graphics.setColor(0.2, 0.9, 1.0, 1)
-        love.graphics.print("КАРИОТИП И СПЕРМОГРАММА", 400, 95)
+        love.graphics.setColor(is_oocyte and {0.98, 0.55, 0.8, 1} or {0.25, 0.95, 1.0, 1})
+        local pref = is_oocyte and "[♀] " or "[♂] "
+        love.graphics.print(pref .. cur_spec.name, ox + 20, dy)
 
-        -- Хромосомный паспорт
-        local cy = 135
-        local ch_names = {
-            {k = "ch1", title = "Хромосома 1 (Акросома)", locus = "CH1_ACROSOME"},
-            {k = "ch2", title = "Хромосома 2 (Митохондрии)", locus = "CH2_MITOCHONDRIA"},
-            {k = "ch3", title = "Хромосома 3 (Аксонема 9+2)", locus = "CH3_AXONEME"},
-            {k = "ch4", title = "Хромосома 4 (Мембрана)", locus = "CH4_MEMBRANE"}
-        }
+        dy = dy + 24
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.amber_glass)
+        love.graphics.print(cur_spec.class_title or genetics.determine_class(cur_spec), ox + 20, dy)
 
-        for _, item in ipairs(ch_names) do
-            local allele_id = cur.chromosomes[item.k]
-            local allele_info = genetics.LOCI[item.locus].alleles[allele_id]
+        -- Показатели фенотипа
+        dy = dy + 28
+        local p = cur_spec.phenotype or genetics.calculate_phenotype(cur_spec)
 
-            love.graphics.setColor(0.10, 0.16, 0.26, 0.95)
-            love.graphics.rectangle("fill", 400, cy, 440, 52, 4, 4)
-            love.graphics.setColor(0.25, 0.65, 0.9, 0.8)
-            love.graphics.rectangle("line", 400, cy, 440, 52, 4, 4)
+        local function draw_stat_row(label, val_str, y_pos, col)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.text_dim)
+            love.graphics.print(label, ox + 20, y_pos)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(col or theme.text_light)
+            love.graphics.printf(val_str, ox + ow - 180, y_pos, 160, "right")
+        end
+
+        draw_stat_row("Мотильность жгутика:", is_oocyte and "0 Гц (Неподвижна)" or (p.frequency_hz .. " Гц"), dy, {0.3, 0.9, 1, 1})
+        dy = dy + 20
+        draw_stat_row("Акросомный гидролиз:", p.acrosome_potency .. " ед.", dy, {1, 0.4, 0.3, 1})
+        dy = dy + 20
+        draw_stat_row("Холестериновый барьер:", p.membrane_barrier .. " мкм", dy, {0.3, 0.9, 0.5, 1})
+        dy = dy + 20
+        draw_stat_row("Морфология по Крюгеру:", math.floor(p.kruger_normality) .. "% норм.", dy, {1, 0.8, 0.2, 1})
+        dy = dy + 20
+        draw_stat_row("Фрагментация ДНК:", p.dna_fragmentation .. "%", dy, (p.dna_fragmentation > 25 and theme.crimson_stamp or {0.3, 0.8, 0.4, 1}))
+
+        -- Кариотипные хромосомы
+        dy = dy + 28
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.brass)
+        local c1 = cur_spec.chromosomes.ch1 or "ACR"
+        local c2 = cur_spec.chromosomes.ch2 or "MITO"
+        local c3 = cur_spec.chromosomes.ch3 or "FLA"
+        local c4 = cur_spec.chromosomes.ch4 or "MEM"
+        love.graphics.print("КАРИОТИП: [" .. c1 .. "]  [" .. c2 .. "]  [" .. c3 .. "]  [" .. c4 .. "]", ox + 20, dy)
+    end
+end
+
+function lab_state:draw_workstation_tools_panel()
+    local tx = 890
+    local ty = 70
+    local tw = 370
+    local th = 590
+
+    theme.draw_paper_sheet(tx, ty, tw, th, "РАБОЧИЙ ЛОТОК ОБРАЗЦОВ")
+
+    -- 1. Активные образцы в чашках Петри
+    local specimens = session.data and session.data.active_specimens or {}
+    local sel_idx = session.data and session.data.selected_specimen_idx or 1
+
+    local sy = ty + 45
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.teal)
+    love.graphics.print("ЖИВЫЕ КЛЕТКИ В ЧАШКАХ (" .. #specimens .. "):", tx + 16, sy)
+
+    sy = sy + 22
+    for idx, spec in ipairs(specimens) do
+        if idx <= 5 then
+            local is_sel = (idx == sel_idx)
+            local is_oocyte = (spec.unit_type == "oocyte")
+
+            love.graphics.setColor(is_sel and theme.teal or {0.92, 0.94, 0.93, 0.9})
+            love.graphics.rectangle("fill", tx + 16, sy, tw - 32, 38, 4, 4)
+            love.graphics.setColor(is_sel and theme.brass or theme.border_subtle)
+            love.graphics.setLineWidth(1)
+            love.graphics.rectangle("line", tx + 16, sy, tw - 32, 38, 4, 4)
+
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(is_sel and {1, 1, 1, 1} or (is_oocyte and {0.85, 0.35, 0.65, 1} or theme.ink_primary))
+            local pref = is_oocyte and "[♀] " or "[♂] "
+            love.graphics.print(pref .. spec.name:sub(1, 16), tx + 24, sy + 6)
 
             love.graphics.setFont(fonts.small)
-            love.graphics.setColor(0.7, 0.85, 1, 1)
-            love.graphics.print(item.title, 410, cy + 6)
-            
-            love.graphics.setFont(fonts.bold)
-            love.graphics.setColor(0.2, 1.0, 0.6, 1)
-            love.graphics.print("Аллель: " .. (allele_info and allele_info.name or allele_id), 410, cy + 26)
+            love.graphics.setColor(is_sel and {0.85, 0.95, 0.95, 0.9} or theme.ink_muted)
+            local spec_gen = spec.is_embryo and "ЭМБРИОН" or ("Пок. " .. (spec.generation or 1))
+            love.graphics.print(spec_gen .. " | " .. (spec.class_title or "Гамета"):sub(1, 18), tx + 24, sy + 20)
 
-            cy = cy + 62
+            sy = sy + 44
         end
-
-        -- Фенотипические показатели
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(1, 0.85, 0.25, 1)
-        love.graphics.print("МОРФОЛОГИЯ ПО КРЮГЕРУ И ПАРАМЕТРЫ:", 400, cy + 12)
-        cy = cy + 38
-        
-        love.graphics.setFont(fonts.regular)
-        love.graphics.setColor(0.9, 0.95, 1, 0.95)
-        love.graphics.print("• Жизнеспособность (ХП): " .. cur.phenotype.max_hp, 410, cy)
-        love.graphics.print("• Частота биения жгутика: " .. cur.phenotype.frequency_hz .. " Гц", 410, cy + 24)
-        love.graphics.print("• Окислительный синтез АТФ: +" .. cur.phenotype.bonus_atp .. " АТФ/ход", 410, cy + 48)
-        love.graphics.print("• Исходная липидная защита: " .. cur.phenotype.shield .. " щита", 410, cy + 72)
-        love.graphics.print("• Сила ферментного гидролиза: +" .. cur.phenotype.bonus_dmg .. " к урону", 410, cy + 96)
     end
 
-    -- 5. Правая колонка: Станция Селекции
-    love.graphics.setColor(0.06, 0.10, 0.16, 0.95)
-    love.graphics.rectangle("fill", 890, 80, 360, 610, 8, 8)
-    love.graphics.setColor(0.3, 0.6, 0.8, 0.8)
-    love.graphics.rectangle("line", 890, 80, 360, 610, 8, 8)
+    -- 2. Секция купленных архивных ампул со свалки (Ожидают центрифуги)
+    local unres = session.data and session.data.unrestored_vials or {}
+    local cy = ty + 310
+    love.graphics.setColor(theme.border_subtle)
+    love.graphics.line(tx + 16, cy, tx + tw - 16, cy)
 
-    love.graphics.setFont(fonts.title)
-    love.graphics.setColor(1, 0.45, 0.65, 1)
-    love.graphics.print("ЭКО-СКРЕЩИВАНИЕ", 910, 95)
-
+    cy = cy + 10
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(0.9, 0.9, 0.95, 0.95)
-    love.graphics.print("Партнер: " .. self.donor_egg.name, 910, 140)
-    
+    love.graphics.setColor(theme.amber_glass)
+    love.graphics.print("АРХИВНЫЙ УТИЛЬ (" .. #unres .. " шт.):", tx + 16, cy)
+
+    cy = cy + 22
+    if #unres > 0 then
+        local first_vial = unres[1]
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.ink_primary)
+        love.graphics.print(first_vial.label .. " (" .. first_vial.origin_name .. ")", tx + 16, cy)
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.print("Сохранность: " .. first_vial.condition .. "% • " .. first_vial.year .. " г.", tx + 16, cy + 16)
+
+        -- Кнопка центрифугирования
+        theme.draw_button("ОЧИСТИТЬ В ЦЕНТРИФУГЕ", tx + 16, cy + 38, tw - 32, 34, false, "amber")
+    else
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.print("Нет архивных ампул. Посетите Био-Свалку!", tx + 16, cy + 6)
+    end
+
+    -- 3. Кнопка оплодотворения методом ИКСИ
+    local icsi_y = ty + th - 95
+    love.graphics.setColor(theme.border_subtle)
+    love.graphics.line(tx + 16, icsi_y - 12, tx + tw - 16, icsi_y - 12)
+
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(0.4, 0.85, 1, 0.95)
-    love.graphics.print("• Акросома: " .. self.donor_egg.chromosomes.ch1, 920, 175)
-    love.graphics.print("• Митохондрии: " .. self.donor_egg.chromosomes.ch2, 920, 202)
-    love.graphics.print("• Аксонема: " .. self.donor_egg.chromosomes.ch3, 920, 229)
-    love.graphics.print("• Мембрана: " .. self.donor_egg.chromosomes.ch4, 920, 256)
+    love.graphics.setColor(theme.ink_muted)
+    love.graphics.printf("ИКСИ: введение выбранного сперматозоида ♂ в ооцит ♀", tx + 16, icsi_y - 6, tw - 32, "center")
 
-    -- Кнопка скрещивания
-    love.graphics.setColor(0.85, 0.25, 0.45, 0.95)
-    love.graphics.rectangle("fill", 910, 310, 320, 55, 8, 8)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(fonts.bold)
-    love.graphics.printf("СКРЕСТИТЬ [Клавиша B]", 910, 328, 320, "center")
+    theme.draw_button("ВЫПОЛНИТЬ ИКСИ (ОПЛОДОТВОРЕНИЕ)", tx + 16, icsi_y + 18, tw - 32, 42, false, "primary")
+end
 
-    -- Статус
-    love.graphics.setFont(fonts.regular)
-    love.graphics.setColor(0.2, 0.9, 1.0, 1)
-    love.graphics.printf(self.status_msg, 910, 390, 320, "center")
-
-    -- Кнопка выбора в бой
-    love.graphics.setColor(0.1, 0.7, 0.4, 0.95)
-    love.graphics.rectangle("fill", 910, 600, 320, 55, 8, 8)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(fonts.bold)
-    love.graphics.printf("ВЫБРАТЬ В БОЙ [Space]", 910, 618, 320, "center")
+function lab_state:draw_status_bar()
+    love.graphics.setColor(theme.bg_paper)
+    love.graphics.rectangle("fill", 0, 665, 1280, 55)
+    love.graphics.setColor(theme.teal)
+    love.graphics.line(0, 665, 1280, 665)
 
     love.graphics.setFont(fonts.regular)
+    love.graphics.setColor(theme.ink_primary)
+    love.graphics.print("ЖУРНАЛ ЭМБРИОЛОГА: " .. self.status_msg, 25, 682)
 end
 
 function lab_state:mousepressed(x, y, button)
     if button ~= 1 then return end
 
-    -- Клик по кнопке "В меню"
-    if x >= 870 and x <= 1030 and y >= 10 and y <= 46 then
-        local sm = require("src.states.state_manager")
-        sm.switch("menu")
+    -- 1. Кнопка "Архив Био-Утиля" в шапке
+    if x >= 880 and x <= 1070 and y >= 10 and y <= 46 then
+        state_manager.switch("salvage")
         return
     end
 
-    -- Клик по кнопке "Начать бой"
-    if x >= 1050 and x <= 1255 and y >= 10 and y <= 46 then
-        self:start_battle_with_selected()
+    -- 2. Кнопка "Смена дня"
+    if x >= 1085 and x <= 1260 and y >= 10 and y <= 46 then
+        session.advance_day()
+        self.status_msg = "Наступил новый день (" .. session.data.day .. "). Поступили новые заказы и партии утиля!"
         return
     end
 
-    -- Выбор особи из списка слева
-    for idx = 1, #self.specimens do
-        local sy = 130 + (idx - 1) * 75
-        if x >= 45 and x <= 335 and y >= sy and y <= sy + 65 then
-            self.selected_idx = idx
-            self.status_msg = "Выбран образец " .. self.specimens[idx].name
+    -- 3. Вкладки заказов в левой панели
+    local px = 20
+    local py = 70
+    local tab_w = 110
+    local orders = session.data and session.data.active_orders or {}
+    for idx = 1, #orders do
+        local tx = px + 16 + (idx - 1) * (tab_w + 6)
+        local ty = py + 42
+        if x >= tx and x <= tx + tab_w and y >= ty and y <= ty + 24 then
+            session.data.selected_order_idx = idx
             return
         end
     end
 
-    -- Кнопка скрещивания
-    if x >= 910 and x <= 1230 and y >= 310 and y <= 365 then
-        self:breed_new_specimen()
+    -- 4. Кнопка сдачи заказа клиенту
+    local btn_y = py + 590 - 75
+    if x >= px + 20 and x <= px + 360 and y >= btn_y and y <= btn_y + 44 then
+        local cur_order_idx = session.data.selected_order_idx or 1
+        local cur_spec = self:get_current_inspected_specimen()
+        local ok, earned, score = session.submit_order(cur_order_idx, cur_spec)
+        if ok then
+            self.status_msg = "Заказ успешно сдан! Получено: +" .. earned .. " ₽ (Соответствие: " .. score .. "%)."
+        else
+            self.status_msg = earned or "Ошибка сдачи заказа!"
+        end
         return
     end
 
-    -- Кнопка "Выбрать эту особь в бой"
-    if x >= 910 and x <= 1230 and y >= 600 and y <= 655 then
-        self:start_battle_with_selected()
+    -- 5. Клик по лотку образцов справа
+    local tx = 890
+    local ty = 70
+    local sy = ty + 67
+    local specimens = session.data and session.data.active_specimens or {}
+    for idx = 1, math.min(5, #specimens) do
+        if x >= tx + 16 and x <= tx + 338 and y >= sy and y <= sy + 38 then
+            session.data.selected_specimen_idx = idx
+            local s = specimens[idx]
+            if s.unit_type == "sperm" then self.selected_sperm_idx = idx
+            elseif s.unit_type == "oocyte" then self.selected_ovum_idx = idx end
+            return
+        end
+        sy = sy + 44
+    end
+
+    -- 6. Кнопка очистки архивной ампулы в центрифуге
+    local cy = ty + 310 + 32
+    local unres = session.data and session.data.unrestored_vials or {}
+    if #unres > 0 and x >= tx + 16 and x <= tx + 338 and y >= cy + 38 and y <= cy + 72 then
+        local ok, restored = session.restore_vial(1)
+        if ok then
+            self.status_msg = "Ампула очищена на центрифуге! Образец [" .. restored.name .. "] готов к селекции."
+        end
         return
     end
-end
 
-function lab_state:breed_new_specimen()
-    local parent = self.specimens[self.selected_idx]
-    if not parent then return end
-
-    local child = genetics.breed(parent, self.donor_egg)
-    table.insert(self.specimens, 1, child)
-    self.selected_idx = 1
-    self.status_msg = "Рожден потомок: " .. child.name .. "!"
-end
-
-function lab_state:start_battle_with_selected()
-    local sm = require("src.states.state_manager")
-    sm.switch("battle", self.specimens[self.selected_idx])
+    -- 7. Кнопка ИКСИ (Оплодотворение)
+    local icsi_y = ty + 590 - 95 + 18
+    if x >= tx + 16 and x <= tx + 338 and y >= icsi_y and y <= icsi_y + 42 then
+        local sperm = specimens[self.selected_sperm_idx]
+        local ovum = specimens[self.selected_ovum_idx]
+        local embryo, err = session.perform_icsi(sperm, ovum)
+        if embryo then
+            local extra = embryo.freak_type and " [АНОМАЛЬНЫЙ МУТАНТ!]" or ""
+            self.status_msg = "Оплодотворение ИКСИ успешно! Получена зигота: " .. embryo.name .. extra
+        else
+            self.status_msg = err or "Ошибка ИКСИ: выберите сперматозоид ♂ и ооцит ♀!"
+        end
+        return
+    end
 end
 
 function lab_state:keypressed(key)
-    if key == "space" then
-        self:start_battle_with_selected()
-    elseif key == "b" then
-        self:breed_new_specimen()
-    elseif key == "escape" then
-        local sm = require("src.states.state_manager")
-        sm.switch("menu")
+    if key == "escape" then
+        session.save()
+        state_manager.switch("menu")
     end
 end
 
