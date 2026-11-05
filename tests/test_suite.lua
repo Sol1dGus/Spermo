@@ -60,9 +60,11 @@ if #battle.hand > 0 and battle.atp >= battle.hand[1].data.cost then
     print("Played card " .. card_played.data.name .. ":", ok, "Remaining ATP:", battle.atp, "Enemy HP:", battle.enemy.hp)
 end
 
--- End turn
+-- Test summon ally with taunt and enemy attack to verify fix
+battle:summon_ally({ id = "test_lacto", name = "Test Ally", hp = 10, max_hp = 10, taunt = true })
+print("Summoned taunt ally. Testing enemy attack on ally...")
 battle:end_turn()
-print("After turn ended. Phase:", battle.phase, "Turn:", battle.turn, "ATP:", battle.atp)
+print("After turn ended with ally target. Phase:", battle.phase, "Turn:", battle.turn, "ATP:", battle.atp)
 
 print("--- 5. Testing Cryo freeze & unfreeze mechanics ---")
 local col_count_before = #session.data.colony

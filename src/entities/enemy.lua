@@ -84,14 +84,25 @@ function enemy:execute_turn(combat, target)
     local action = self:get_intent()
     combat:add_log(self.name .. " применяет: " .. action.name)
 
+    local function hurt_target(t, dmg, dtype)
+        if not t then return 0 end
+        if t.take_damage then
+            return t:take_damage(dmg, dtype)
+        elseif t.hp then
+            t.hp = math.max(0, t.hp - dmg)
+            return dmg
+        end
+        return 0
+    end
+
     if action.type == "attack" then
-        target:take_damage(action.power, "enemy_phys")
+        hurt_target(target, action.power, "enemy_phys")
     elseif action.type == "attack_debuff" then
-        target:take_damage(action.power, "enemy_debuff")
+        hurt_target(target, action.power, "enemy_debuff")
         combat.atp = math.max(0, combat.atp - 1)
         combat:add_log("Сети NETs заблокировали митохондрии: -1 АТФ!")
     elseif action.type == "attack_heal" then
-        local dmg = target:take_damage(action.power, "enemy_drain")
+        local dmg = hurt_target(target, action.power, "enemy_drain")
         self.hp = math.min(self.max_hp, self.hp + math.floor(dmg / 2))
         combat:add_log(self.name .. " восстановил " .. math.floor(dmg / 2) .. " ХП!")
     elseif action.type == "defend" then

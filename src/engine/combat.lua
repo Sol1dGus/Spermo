@@ -142,6 +142,22 @@ function combat:layout_hand()
 end
 
 function combat:summon_ally(ally)
+    if not ally.take_damage then
+        ally.shield = ally.shield or 0
+        ally.take_damage = function(self, amount, damage_type)
+            if self.shield and self.shield > 0 then
+                if self.shield >= amount then
+                    self.shield = self.shield - amount
+                    amount = 0
+                else
+                    amount = amount - self.shield
+                    self.shield = 0
+                end
+            end
+            self.hp = math.max(0, self.hp - amount)
+            return amount
+        end
+    end
     table.insert(self.allies, ally)
 end
 
