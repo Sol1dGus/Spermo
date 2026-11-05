@@ -5,6 +5,18 @@ local session = require("src.engine.session")
 local theme = require("src.ui.theme")
 local avatar = require("src.ui.avatar")
 local genetics = require("src.engine.genetics")
+local utf8 = require("utf8")
+
+local function truncate_utf8(str, max_chars)
+    if not str then return "" end
+    local ok, len = pcall(function() return utf8.len(str) end)
+    if not ok or not len or len <= max_chars then return str end
+    local offset = utf8.offset(str, max_chars + 1)
+    if offset then
+        return str:sub(1, offset - 1) .. "…"
+    end
+    return str
+end
 
 function lab_state:enter()
     if not session.data then
@@ -322,12 +334,12 @@ function lab_state:draw_workstation_tools_panel()
             love.graphics.setFont(fonts.bold)
             love.graphics.setColor(is_sel and {1, 1, 1, 1} or (is_oocyte and {0.85, 0.35, 0.65, 1} or theme.ink_primary))
             local pref = is_oocyte and "[♀] " or "[♂] "
-            love.graphics.print(pref .. spec.name:sub(1, 16), tx + 24, sy + 6)
+            love.graphics.print(pref .. truncate_utf8(spec.name or "Образец", 16), tx + 24, sy + 6)
 
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(is_sel and {0.85, 0.95, 0.95, 0.9} or theme.ink_muted)
             local spec_gen = spec.is_embryo and "ЭМБРИОН" or ("Пок. " .. (spec.generation or 1))
-            love.graphics.print(spec_gen .. " | " .. (spec.class_title or "Гамета"):sub(1, 18), tx + 24, sy + 20)
+            love.graphics.print(spec_gen .. " | " .. truncate_utf8(spec.class_title or "Гамета", 16), tx + 24, sy + 20)
 
             sy = sy + 44
         end

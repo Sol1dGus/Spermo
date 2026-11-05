@@ -102,6 +102,22 @@ assert(#session.data.salvage_lots > 0, "New salvage lots must be generated")
 assert(#session.data.active_orders > 0, "Active orders must be replenished")
 print("✓ Day advance successful: Day " .. session.data.day .. ". Daily rent paid: " .. (report.rent_paid or 0) .. "₽")
 
+print("--- 8. Testing UI Rendering of Lab & Salvage states ---")
+local fonts = require("src.ui.fonts")
+fonts.init()
+local lab_state = require("src.states.lab_state")
+local salvage_state = require("src.states.salvage_state")
+
+lab_state:enter()
+lab_state:update(0.016)
+lab_state:draw()
+print("✓ Lab state rendered without error")
+
+salvage_state:enter()
+salvage_state:update(0.016)
+salvage_state:draw()
+print("✓ Salvage state rendered without error")
+
 print("==================================================")
-print("   ALL CLINIC TESTS PASSED SUCCESSFULLY! (7/7)   ")
+print("   ALL CLINIC TESTS PASSED SUCCESSFULLY! (8/8)   ")
 print("==================================================")
