@@ -2,10 +2,15 @@ local battle_state = {}
 local combat_mod = require("src.engine.combat")
 local genetics_mod = require("src.engine.genetics")
 local fonts = require("src.ui.fonts")
+local screen = require("src.engine.screen")
+local session = require("src.engine.session")
 
-function battle_state:enter(specimen)
-    self.specimen = specimen or genetics_mod.create_random_specimen("SPERM-ALPHA")
-    self.combat = combat_mod.new(self.specimen, "neutrophil")
+function battle_state:enter(specimen, enemy_type, expedition_ref)
+    self.specimen = specimen or (session.data and session.get_selected_fighter()) or genetics_mod.create_random_specimen("SPERM-ALPHA")
+    self.enemy_type = enemy_type or "neutrophil"
+    self.expedition_ref = expedition_ref
+
+    self.combat = combat_mod.new(self.specimen, self.enemy_type)
     self.dragged_card = nil
 
     -- Фоновые частицы среды микроскопа
@@ -22,8 +27,9 @@ function battle_state:enter(specimen)
 end
 
 function battle_state:update(dt, mx, my)
-    mx = mx or love.mouse.getX()
-    my = my or love.mouse.getY()
+    if not mx or not my then
+        mx, my = screen.get_mouse_position()
+    end
     self.combat:update(dt, mx, my)
 
     -- Обновление частиц взвеси
@@ -62,7 +68,7 @@ function battle_state:draw()
 
     love.graphics.setFont(fonts.title)
     love.graphics.setColor(0.2, 0.9, 1.0, 1)
-    love.graphics.print("SPERMO: ТАКТИЧЕСКИЙ БИО-ДУЭЛЯНТ", 20, 14)
+    love.graphics.print("SPERMO: КАРТОЧНЫЙ СТЫК В ТРАКТЕ", 20, 14)
 
     -- Шкала pH среды
     local ph = self.combat.ph
@@ -71,14 +77,14 @@ function battle_state:draw()
     love.graphics.setColor(ph_color)
     love.graphics.print("Среда pH: " .. string.format("%.1f", ph) .. (ph < 6.0 and " [Кислая]" or " [Оптимум]"), 520, 18)
 
-    -- Кнопка перехода в Инкубатор / Лабораторию
-    love.graphics.setColor(0.1, 0.3, 0.5, 0.9)
-    love.graphics.rectangle("fill", 1060, 10, 200, 36, 6, 6)
-    love.graphics.setColor(0.3, 0.8, 1.0, 1)
-    love.graphics.rectangle("line", 1060, 10, 200, 36, 6, 6)
+    -- Кнопка "В Хаб / Меню"
+    love.graphics.setColor(0.12, 0.22, 0.35, 0.9)
+    love.graphics.rectangle("fill", 1080, 10, 175, 36, 6, 6)
+    love.graphics.setColor(0.25, 0.65, 0.9, 1)
+    love.graphics.rectangle("line", 1080, 10, 175, 36, 6, 6)
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("ИНКУБАТОР [L]", 1095, 18)
+    love.graphics.printf(self.expedition_ref and "ОТСТУПИТЬ" or "В ХАБ [Esc]", 1080, 18, 175, "center")
 
     -- 3. Сфера АТФ в левом нижнем углу
     local atp_x = 75
@@ -142,31 +148,78 @@ function battle_state:draw()
 
         local is_vic = (self.combat.phase == "victory")
         love.graphics.setColor(is_vic and {0.1, 0.8, 0.3, 1} or {0.9, 0.2, 0.3, 1})
-        love.graphics.rectangle("fill", 440, 250, 400, 190, 10, 10)
-        
+        love.graphics.rectangle("fill", 410, 240, 460, 220, 10, 10)
+
         love.graphics.setFont(fonts.big)
         love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.printf(is_vic and "ПОБЕДА!" or "ПОРАЖЕНИЕ!", 440, 275, 400, "center")
+        love.graphics.printf(is_vic and "ПОБЕДА!" or "БОЕЦ ПОГИБ!", 410, 260, 460, "center")
 
         love.graphics.setFont(fonts.bold)
-        love.graphics.printf(is_vic and "Вражеская клетка лизирована!" or "Мембрана разрушена.", 450, 325, 380, "center")
+        love.graphics.printf(is_vic and "Иммунная клетка лизирована!" or "Мембрана разрушена фагоцитами.", 420, 315, 440, "center")
+
+        love.graphics.setFont(fonts.small)
+        local sub = is_vic and (self.expedition_ref and "Трофеи собраны! Продвижение по тракту продолжается." or "Бой завершен.")
+                           or "Перманентная смерть! Особь удалена из колонии."
+        love.graphics.printf(sub, 420, 345, 440, "center")
 
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle("fill", 530, 375, 220, 40, 6, 6)
+        love.graphics.rectangle("fill", 500, 385, 280, 44, 6, 6)
         love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.printf("ПРОДОЛЖИТЬ [Space]", 530, 385, 220, "center")
+        love.graphics.setFont(fonts.bold)
+        local btn_text = is_vic and (self.expedition_ref and "ПРОДОЛЖИТЬ ВЫЛАЗКУ" or "ПРОДОЛЖИТЬ")
+                                or "ВЕРНУТЬСЯ В ЛАБОРАТОРИЮ"
+        love.graphics.printf(btn_text .. " [Space]", 500, 397, 280, "center")
     end
 
     love.graphics.setFont(fonts.regular)
 end
 
+function battle_state:finish_battle()
+    if self.combat.phase == "victory" then
+        self.specimen.phenotype.current_hp = self.combat.hero.hp
+        if self.expedition_ref then
+            self.expedition_ref:on_battle_won()
+            local sm = require("src.states.state_manager")
+            sm.switch("expedition", self.specimen)
+        else
+            local sm = require("src.states.state_manager")
+            sm.switch("hub")
+        end
+    elseif self.combat.phase == "defeat" then
+        -- Permadeath: удаляем погибшего бойца из колонии
+        if session.data and session.data.colony then
+            for idx, spec in ipairs(session.data.colony) do
+                if spec.id == self.specimen.id then
+                    table.remove(session.data.colony, idx)
+                    break
+                end
+            end
+            -- Если колония полностью вымерла, экстренный спасательный образец
+            if #session.data.colony == 0 then
+                local survivor = genetics_mod.create_random_specimen("SPERM-SURVIVOR")
+                table.insert(session.data.colony, survivor)
+            end
+            session.data.selected_fighter_id = session.data.colony[1].id
+            session.data.active_expedition = nil
+            session.advance_cycle()
+            session.save()
+        end
+        local sm = require("src.states.state_manager")
+        sm.switch("hub")
+    end
+end
+
 function battle_state:mousepressed(x, y, button)
     if button ~= 1 then return end
 
-    -- Клик по кнопке "В лабораторию"
-    if x >= 1060 and x <= 1260 and y >= 10 and y <= 46 then
+    -- Клик по кнопке отступления в шапке
+    if x >= 1080 and x <= 1255 and y >= 10 and y <= 46 then
         local sm = require("src.states.state_manager")
-        sm.switch("lab", self.specimen)
+        if self.expedition_ref then
+            self.expedition_ref:finish_expedition(false)
+        else
+            sm.switch("hub")
+        end
         return
     end
 
@@ -176,15 +229,15 @@ function battle_state:mousepressed(x, y, button)
         return
     end
 
-    -- Победный клик
+    -- Клик в модальном окне Победы / Поражения
     if self.combat.phase == "victory" or self.combat.phase == "defeat" then
-        if x >= 530 and x <= 750 and y >= 375 and y <= 415 then
-            self:enter(self.specimen)
+        if x >= 500 and x <= 780 and y >= 385 and y <= 429 then
+            self:finish_battle()
             return
         end
     end
 
-    -- Проверка захвата карты для перетаскивания (с конца руки)
+    -- Проверка захвата карты для перетаскивания
     for i = #self.combat.hand, 1, -1 do
         local cv = self.combat.hand[i]
         if cv.is_hovered then
@@ -218,13 +271,17 @@ end
 function battle_state:keypressed(key)
     if key == "space" then
         if self.combat.phase == "victory" or self.combat.phase == "defeat" then
-            self:enter(self.specimen)
+            self:finish_battle()
         else
             self.combat:end_turn()
         end
-    elseif key == "l" then
+    elseif key == "escape" then
         local sm = require("src.states.state_manager")
-        sm.switch("lab", self.specimen)
+        if self.expedition_ref then
+            self.expedition_ref:finish_expedition(false)
+        else
+            sm.switch("hub")
+        end
     end
 end
 

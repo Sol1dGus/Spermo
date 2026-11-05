@@ -45,12 +45,21 @@ function lab_state:draw()
     love.graphics.setColor(0.2, 0.9, 1.0, 1)
     love.graphics.print("ИНКУБАТОР СЕЛЕКЦИИ И ГЕНЕТИКИ (ЧАШКА ПЕТРИ)", 30, 14)
 
+    -- Кнопка "В Меню"
+    love.graphics.setColor(0.12, 0.22, 0.35, 0.9)
+    love.graphics.rectangle("fill", 870, 10, 160, 36, 6, 6)
+    love.graphics.setColor(0.25, 0.65, 0.9, 1)
+    love.graphics.rectangle("line", 870, 10, 160, 36, 6, 6)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.printf("В МЕНЮ [Esc]", 870, 18, 160, "center")
+
     -- Кнопка в бой
     love.graphics.setColor(0.1, 0.7, 0.4, 0.9)
-    love.graphics.rectangle("fill", 1060, 10, 200, 36, 6, 6)
+    love.graphics.rectangle("fill", 1050, 10, 205, 36, 6, 6)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setFont(fonts.bold)
-    love.graphics.print("НАЧАТЬ БОЙ [Space]", 1080, 18)
+    love.graphics.printf("НАЧАТЬ БОЙ [Space]", 1050, 18, 205, "center")
 
     -- 3. Левая колонка: Пул особей (Колония)
     love.graphics.setColor(0.06, 0.10, 0.16, 0.95)
@@ -186,8 +195,15 @@ end
 function lab_state:mousepressed(x, y, button)
     if button ~= 1 then return end
 
+    -- Клик по кнопке "В меню"
+    if x >= 870 and x <= 1030 and y >= 10 and y <= 46 then
+        local sm = require("src.states.state_manager")
+        sm.switch("menu")
+        return
+    end
+
     -- Клик по кнопке "Начать бой"
-    if x >= 1060 and x <= 1260 and y >= 10 and y <= 46 then
+    if x >= 1050 and x <= 1255 and y >= 10 and y <= 46 then
         self:start_battle_with_selected()
         return
     end
@@ -235,6 +251,9 @@ function lab_state:keypressed(key)
         self:start_battle_with_selected()
     elseif key == "b" then
         self:breed_new_specimen()
+    elseif key == "escape" then
+        local sm = require("src.states.state_manager")
+        sm.switch("menu")
     end
 end
 

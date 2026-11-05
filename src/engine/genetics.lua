@@ -36,7 +36,7 @@ genetics.LOCI = {
                 name = "M (Сверхплотные кристы)",
                 type = "dominant",
                 bonus_atp = 1,
-                cards = {"atp_surge", "oxidative_rush"}
+                cards = {"atp_surge", "glycolysis_boost"}
             },
             MITO_NORM = {
                 id = "MITO_NORM",
@@ -50,8 +50,8 @@ genetics.LOCI = {
                 name = "M* (Разобщенное дыхание)",
                 type = "codominant",
                 bonus_atp = 2,
-                ros_risk = 3, -- Активные формы кислорода
-                cards = {"ros_explosion", "mitochondrial_meltdown"}
+                ros_risk = 3,
+                cards = {"ros_explosion", "atp_surge"}
             }
         }
     },
@@ -64,7 +64,7 @@ genetics.LOCI = {
                 type = "codominant",
                 frequency_hz = 55,
                 initiative = 15,
-                cards = {"twin_whip", "hydrodynamic_vortex"}
+                cards = {"twin_whip", "rheotaxis_dash"}
             },
             FLA_NORM = {
                 id = "FLA_NORM",
@@ -80,7 +80,7 @@ genetics.LOCI = {
                 type = "recessive",
                 frequency_hz = 18,
                 initiative = -5,
-                cards = {"sluggish_drift"}
+                cards = {"flagellum_strike"}
             }
         }
     },
@@ -92,32 +92,54 @@ genetics.LOCI = {
                 name = "C (Холестериновый панцирь)",
                 type = "dominant",
                 shield = 8,
-                cards = {"cholesterol_barrier", "membrane_stiffening"}
+                cards = {"cholesterol_barrier", "capacitation_ritual"}
             },
             MEM_CHEMO = {
                 id = "MEM_CHEMO",
                 name = "C+ (Хемотаксическая гиперчувствительность)",
                 type = "dominant",
                 shield = 3,
-                cards = {"progesterone_lock", "calcium_influx"}
+                cards = {"rheotaxis_dash", "ph_buffer_spray"}
             },
             MEM_FRAGILE = {
                 id = "MEM_FRAGILE",
                 name = "c (Лабильная мембрана)",
                 type = "recessive",
                 shield = 0,
-                cards = {"premature_capacitation", "lysis_burst"}
+                cards = {"capacitation_ritual", "lactobacillus_ally"}
             }
         }
     }
 }
 
--- 2. Создание случайной гаплоидной особи (1n = 4 хромосомы)
+-- 2. Определение Клеточного Класса на основе анатомии и мутаций
+function genetics.determine_class(specimen)
+    if not specimen or not specimen.phenotype then return "СБАЛАНСИРОВАННАЯ ГАМЕТА" end
+
+    local p = specimen.phenotype
+    if specimen.freak_type == "freak_two_headed" or (p.bonus_dmg and p.bonus_dmg >= 3) then
+        return "ФЕРМЕНТНЫЙ ЛИЗАТОР"
+    elseif specimen.freak_type == "freak_corkscrew" or (p.frequency_hz and p.frequency_hz >= 45) then
+        return "ЖГУТИКОВЫЙ ПЕРЕХВАТЧИК"
+    elseif specimen.freak_type == "freak_giant_head" or (p.shield and p.shield >= 6) then
+        return "ХОЛЕСТЕРИНОВЫЙ ТАНК"
+    elseif p.bonus_atp and p.bonus_atp >= 1 then
+        return "МИТОХОНДРИАЛЬНЫЙ РЕАКТОР"
+    else
+        return "СБАЛАНСИРОВАННАЯ ГАМЕТА"
+    end
+end
+
+-- 3. Создание случайной гаплоидной особи (Поколение 1)
 function genetics.create_random_specimen(name)
     local specimen = {
         id = tostring(math.random(100000, 999999)),
         name = name or ("SPERM-" .. string.format("%04X", math.random(0, 0xFFFF))),
         generation = 1,
+        age = 0,
+        max_age = 7,
+        inbreeding = 0,
+        freak_type = nil,
         chromosomes = {
             ch1 = "ACR_NORM",
             ch2 = "MITO_NORM",
@@ -126,7 +148,6 @@ function genetics.create_random_specimen(name)
         }
     }
 
-    -- Добавляем случайные мутации с шансом 35%
     local pool1 = {"ACR_HYPER", "ACR_NORM", "ACR_DEFECT"}
     local pool2 = {"MITO_HIGH", "MITO_NORM", "MITO_BURST"}
     local pool3 = {"FLA_TWIN", "FLA_NORM", "FLA_SHORT"}
@@ -138,10 +159,11 @@ function genetics.create_random_specimen(name)
     specimen.chromosomes.ch4 = pool4[math.random(#pool4)]
 
     specimen.phenotype = genetics.calculate_phenotype(specimen)
+    specimen.class_title = genetics.determine_class(specimen)
     return specimen
 end
 
--- 3. Расчет фенотипа (анатомических параметров и колоды)
+-- 4. Расчет фенотипа
 function genetics.calculate_phenotype(specimen)
     local ch1 = genetics.LOCI.CH1_ACROSOME.alleles[specimen.chromosomes.ch1]
     local ch2 = genetics.LOCI.CH2_MITOCHONDRIA.alleles[specimen.chromosomes.ch2]
@@ -163,12 +185,26 @@ function genetics.calculate_phenotype(specimen)
         deck = {}
     }
 
-    -- Формируем колоду из карт, зашитых в аллелях
+    -- Модификаторы инбредных уродцев (Freak Mutants)
+    if specimen.freak_type == "freak_two_headed" then
+        p.bonus_dmg = p.bonus_dmg + 3
+        p.frequency_hz = math.max(15, p.frequency_hz - 8)
+    elseif specimen.freak_type == "freak_corkscrew" then
+        p.frequency_hz = p.frequency_hz + 10
+        p.max_hp = math.max(15, p.max_hp - 5)
+    elseif specimen.freak_type == "freak_giant_head" then
+        p.max_hp = p.max_hp + 15
+        p.shield = p.shield + 6
+        p.frequency_hz = math.max(12, p.frequency_hz - 14)
+    end
+
+    p.current_hp = p.max_hp
+
+    -- Сборка колоды
     local function add_cards(allele_def)
         if allele_def and allele_def.cards then
             for _, card_id in ipairs(allele_def.cards) do
                 table.insert(p.deck, card_id)
-                -- Каждая особь имеет по 2 копии своих визитных карт
                 table.insert(p.deck, card_id)
             end
         end
@@ -179,35 +215,45 @@ function genetics.calculate_phenotype(specimen)
     add_cards(ch3)
     add_cards(ch4)
 
-    -- Базовые карты цитоскелета и обмена веществ (всего колода ~12-14 карт)
     table.insert(p.deck, "lactobacillus_ally")
-    table.insert(p.deck, "cytoskeleton_flex")
     table.insert(p.deck, "capacitation_ritual")
     table.insert(p.deck, "ph_buffer_spray")
 
     return p
 end
 
--- 4. Мейоз и Кроссинговер (Скрещивание двух особей)
+-- 5. Мейоз, Кроссинговер и Инбридинг (Mewgenics Breeding)
 function genetics.breed(parent_sperm, donor_ovum)
     local child = {
         id = tostring(math.random(100000, 999999)),
         name = "SPERM-GEN" .. (parent_sperm.generation + 1) .. "-" .. string.format("%03X", math.random(0, 0xFFF)),
         generation = parent_sperm.generation + 1,
+        age = 0,
+        max_age = 7,
         chromosomes = {}
     }
 
-    -- Менделевское расщепление и независимое комбинирование хромосом
+    -- 1. Подсчет инбридинга (совпадение аллелей родителей)
+    local matches = 0
     local ch_keys = {"ch1", "ch2", "ch3", "ch4"}
     for _, k in ipairs(ch_keys) do
-        -- Шанс 50% взять хромосому отца или матери
+        if parent_sperm.chromosomes[k] == donor_ovum.chromosomes[k] then
+            matches = matches + 1
+        end
+    end
+
+    local parent_inbreed = parent_sperm.inbreeding or 0
+    child.inbreeding = math.min(100, math.floor(parent_inbreed * 0.5 + (matches / 4) * 50))
+
+    -- 2. Менделевское наследование и кроссинговер
+    for _, k in ipairs(ch_keys) do
         if math.random() < 0.5 then
             child.chromosomes[k] = parent_sperm.chromosomes[k]
         else
             child.chromosomes[k] = donor_ovum.chromosomes[k] or parent_sperm.chromosomes[k]
         end
 
-        -- Мутационный дрейф (кроссинговерная аберрация 10% шанс)
+        -- 10% шанс мутационного кроссинговера
         if math.random() < 0.10 then
             local locus_id = (k == "ch1" and "CH1_ACROSOME") or
                              (k == "ch2" and "CH2_MITOCHONDRIA") or
@@ -220,7 +266,16 @@ function genetics.breed(parent_sperm, donor_ovum)
         end
     end
 
+    -- 3. Шанс тератозооспермии (Генетический уродец при инбридинге)
+    -- Чем выше инбридинг, тем выше шанс уродца (при 50% инбридинга — шанс 35%)
+    local freak_chance = (child.inbreeding / 100) * 0.70
+    if math.random() < freak_chance then
+        local freak_pool = {"freak_two_headed", "freak_corkscrew", "freak_giant_head"}
+        child.freak_type = freak_pool[math.random(#freak_pool)]
+    end
+
     child.phenotype = genetics.calculate_phenotype(child)
+    child.class_title = genetics.determine_class(child)
     return child
 end
 
