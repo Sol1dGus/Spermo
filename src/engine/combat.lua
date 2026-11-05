@@ -5,18 +5,56 @@ local cards = require("src.engine.cards")
 local card_view = require("src.ui.card_view")
 local enemy_mod = require("src.entities.enemy")
 local sperm_mod = require("src.entities.sperm")
+local oocyte_mod = require("src.entities.oocyte")
 
-function combat.new(specimen, enemy_type)
+local FORMATIONS = {
+    [1] = { {x = 280, y = 260} },
+    [2] = { {x = 240, y = 210}, {x = 340, y = 330} },
+    [3] = { {x = 230, y = 180}, {x = 350, y = 270}, {x = 220, y = 370} },
+    [4] = { {x = 220, y = 180}, {x = 340, y = 250}, {x = 200, y = 330}, {x = 320, y = 410} }
+}
+
+function combat.new(squad_or_specimen, enemy_type)
     local self = setmetatable({}, combat)
-    self.specimen = specimen
-    self.hero = sperm_mod.new(specimen, 280, 260)
+
+    -- Нормализация отряда (1..4 бойца)
+    local squad = {}
+    if squad_or_specimen and squad_or_specimen[1] then
+        for _, s in ipairs(squad_or_specimen) do
+            table.insert(squad, s)
+        end
+    elseif squad_or_specimen and squad_or_specimen.phenotype then
+        table.insert(squad, squad_or_specimen)
+    end
+    if #squad == 0 then
+        local genetics = require("src.engine.genetics")
+        table.insert(squad, genetics.create_random_specimen("SPERM-ALPHA"))
+    end
+
+    self.squad = squad
+    self.heroes = {}
+
+    local formation = FORMATIONS[#squad] or FORMATIONS[4]
+    for idx, spec in ipairs(squad) do
+        local pos = formation[idx] or {x = 240, y = 200 + idx * 60}
+        local hero
+        if spec.unit_type == "oocyte" then
+            hero = oocyte_mod.new(spec, pos.x, pos.y)
+        else
+            hero = sperm_mod.new(spec, pos.x, pos.y)
+        end
+        hero.specimen = spec
+        table.insert(self.heroes, hero)
+    end
+
+    self.hero = self.heroes[1] -- Обратная совместимость для одиночных вызовов
     self.enemy = enemy_mod.new(enemy_type or "neutrophil", 1000, 260)
-    self.allies = {}
+    self.allies = {} -- Призванные симбионты (напр. Лактобактерии)
 
     self.turn = 1
-    self.max_atp = 1
-    self.atp = 1
-    self.ph = 5.8 -- Начинаем в слабокислой среде
+    self.max_atp = math.min(10, 1 + #self.heroes) -- Больше бойцов = больше стартовый пул АТФ!
+    self.atp = self.max_atp
+    self.ph = 5.8
     self.phase = "player_turn"
     self.next_turn_atp_bonus = 0
 
@@ -32,12 +70,20 @@ function combat.new(specimen, enemy_type)
 end
 
 function combat:init_deck()
-    -- Копируем и тасуем колоду фенотипа
     self.deck = {}
-    for _, cid in ipairs(self.specimen.phenotype.deck) do
-        table.insert(self.deck, cid)
+    -- Объединяем карты всех бойцов отряда в единую партийную колоду
+    for _, spec in ipairs(self.squad) do
+        if spec.phenotype and spec.phenotype.deck then
+            for _, cid in ipairs(spec.phenotype.deck) do
+                table.insert(self.deck, {
+                    card_id = cid,
+                    owner = spec
+                })
+            end
+        end
     end
-    -- Тасование Фишера-Йетса
+
+    -- Перетасовка Фишера-Йетса
     for i = #self.deck, 2, -1 do
         local j = math.random(i)
         self.deck[i], self.deck[j] = self.deck[j], self.deck[i]
@@ -45,7 +91,9 @@ function combat:init_deck()
 end
 
 function combat:start_combat()
-    self:add_log("=== БОЙ НАЧАЛСЯ: " .. self.hero.name .. " vs " .. self.enemy.name .. " ===")
+    local names = {}
+    for _, h in ipairs(self.heroes) do table.insert(names, h.name) end
+    self:add_log("=== СТЫЧКА: Отряд [" .. table.concat(names, ", ") .. "] vs " .. self.enemy.name .. " ===")
     self:add_log("Микроокружение: pH " .. string.format("%.1f", self.ph) .. " (кислая зона)")
     self:draw_cards(4)
 end
@@ -59,26 +107,25 @@ end
 
 function combat:draw_cards(count)
     for i = 1, count do
-        if #self.hand >= 7 then break end -- лимит руки
+        if #self.hand >= 7 then break end
         if #self.deck == 0 then
-            -- Перетасовка кладбища в колоду
             if #self.graveyard > 0 then
-                for _, cid in ipairs(self.graveyard) do
-                    table.insert(self.deck, cid)
+                for _, item in ipairs(self.graveyard) do
+                    table.insert(self.deck, item)
                 end
                 self.graveyard = {}
                 for j = #self.deck, 2, -1 do
                     local k = math.random(j)
                     self.deck[j], self.deck[k] = self.deck[k], self.deck[j]
                 end
-                self:add_log("Сброс перемешан в новую колоду.")
+                self:add_log("Сброс карт отряда замешан в колоду.")
             else
                 break
             end
         end
 
-        local cid = table.remove(self.deck, 1)
-        local cv = card_view.new(cid, #self.hand + 1)
+        local item = table.remove(self.deck, 1)
+        local cv = card_view.new(item.card_id, #self.hand + 1, item.owner)
         table.insert(self.hand, cv)
     end
     self:layout_hand()
@@ -86,11 +133,11 @@ end
 
 function combat:layout_hand()
     local total_cards = #self.hand
-    local start_x = 640 - (total_cards * 150) / 2
+    local start_x = 640 - (total_cards * 155) / 2
     for i, cv in ipairs(self.hand) do
         cv.hand_index = i
-        cv.target_x = start_x + (i - 1) * 150
-        cv.target_y = 500
+        cv.target_x = start_x + (i - 1) * 155
+        cv.target_y = 495
     end
 end
 
@@ -98,24 +145,67 @@ function combat:summon_ally(ally)
     table.insert(self.allies, ally)
 end
 
+function combat:get_hero_by_specimen(spec)
+    if not spec then return self.heroes[1] end
+    for _, h in ipairs(self.heroes) do
+        if h.specimen and h.specimen.id == spec.id then
+            return h
+        end
+    end
+    return self.heroes[1]
+end
+
+function combat:get_alive_heroes()
+    local alive = {}
+    for _, h in ipairs(self.heroes) do
+        if h.hp > 0 then
+            table.insert(alive, h)
+        end
+    end
+    return alive
+end
+
 function combat:play_card(cv)
     if self.phase ~= "player_turn" then return false end
     if self.atp < cv.data.cost then
-        self:add_log("Недостаточно АТФ! Требуется: " .. cv.data.cost .. ", есть: " .. self.atp)
+        self:add_log("Недостаточно АТФ! Нужно: " .. cv.data.cost .. ", в пуле: " .. self.atp)
         return false
+    end
+
+    local user = self:get_hero_by_specimen(cv.owner)
+    if user.hp <= 0 then
+        -- Если владелец карты пал в бою, использовать карту может другой живой союзник
+        local alive = self:get_alive_heroes()
+        if #alive == 0 then return false end
+        user = alive[1]
+    end
+
+    -- Таргетинг карты
+    local target = self.enemy
+    if cv.data.target_type == "ally" then
+        -- Находим наиболее раненого живого бойца
+        local most_hurt = user
+        for _, h in ipairs(self.heroes) do
+            if h.hp > 0 and (h.hp / h.max_hp) < (most_hurt.hp / most_hurt.max_hp) then
+                most_hurt = h
+            end
+        end
+        target = most_hurt
+    elseif cv.data.target_type == "self" then
+        target = user
     end
 
     -- Списание АТФ
     self.atp = self.atp - cv.data.cost
 
-    -- Выполнение эффекта
-    cv.data.effect(self, self.hero, self.enemy)
+    -- Применение эффекта
+    cv.data.effect(self, user, target)
 
-    -- Удаление из руки и отправка на кладбище
+    -- Сброс
     for idx, c in ipairs(self.hand) do
         if c == cv then
             table.remove(self.hand, idx)
-            table.insert(self.graveyard, cv.card_id)
+            table.insert(self.graveyard, { card_id = cv.card_id, owner = cv.owner })
             break
         end
     end
@@ -124,7 +214,7 @@ function combat:play_card(cv)
     -- Проверка победы
     if self.enemy.hp <= 0 then
         self.phase = "victory"
-        self:add_log("🎉 ПОБЕДА! Вражеская клетка лизирована!")
+        self:add_log("🎉 ПОБЕДА! Вражеская иммунная клетка лизирована!")
     end
 
     return true
@@ -133,21 +223,31 @@ end
 function combat:end_turn()
     if self.phase ~= "player_turn" then return end
     self.phase = "enemy_turn"
-    self:add_log("--- Ход врага ---")
+    self:add_log("--- Ход иммунного патруля ---")
 
-    -- Определение цели врага (проверка союзников с провокацией)
-    local target = self.hero
-    for idx, ally in ipairs(self.allies) do
+    -- 1. Выбор цели врагом
+    local target = nil
+    -- Проверка союзников с провокацией (таунт)
+    for _, ally in ipairs(self.allies) do
         if ally.taunt and ally.hp > 0 then
             target = ally
             break
         end
     end
 
-    -- Ход врага
-    self.enemy:execute_turn(self, target)
+    -- Если нет провокации, атакует случайного живого бойца отряда
+    if not target then
+        local alive = self:get_alive_heroes()
+        if #alive > 0 then
+            target = alive[math.random(#alive)]
+        end
+    end
 
-    -- Очистка погибших союзников
+    if target then
+        self.enemy:execute_turn(self, target)
+    end
+
+    -- Очистка погибших симбионтов
     for idx = #self.allies, 1, -1 do
         if self.allies[idx].hp <= 0 then
             self:add_log("Симбионт " .. self.allies[idx].name .. " погиб!")
@@ -155,10 +255,11 @@ function combat:end_turn()
         end
     end
 
-    -- Проверка поражения
-    if self.hero.hp <= 0 then
+    -- Проверка павших бойцов отряда
+    local remaining_alive = self:get_alive_heroes()
+    if #remaining_alive == 0 then
         self.phase = "defeat"
-        self:add_log("💀 ПОРАЖЕНИЕ! Мембрана разрушена.")
+        self:add_log("💀 ПОРАЖЕНИЕ! Весь отряд уничтожен.")
         return
     end
 
@@ -168,8 +269,12 @@ function combat:end_turn()
     self.atp = self.max_atp + self.next_turn_atp_bonus
     self.next_turn_atp_bonus = 0
 
-    -- Сброс щитов в начале хода
-    self.hero.shield = math.floor(self.hero.shield * 0.5)
+    -- Сброс части щитов у всех живых бойцов в начале хода
+    for _, h in ipairs(self.heroes) do
+        if h.hp > 0 then
+            h.shield = math.floor((h.shield or 0) * 0.5)
+        end
+    end
 
     self:draw_cards(2)
     self.phase = "player_turn"
@@ -177,7 +282,11 @@ function combat:end_turn()
 end
 
 function combat:update(dt, mx, my)
-    self.hero:update(dt)
+    for _, h in ipairs(self.heroes) do
+        if h.hp > 0 then
+            h:update(dt)
+        end
+    end
     self.enemy:update(dt)
 
     for _, cv in ipairs(self.hand) do
@@ -186,14 +295,27 @@ function combat:update(dt, mx, my)
 end
 
 function combat:draw()
-    -- Отрисовка бойцов
-    self.hero:draw()
+    -- Отрисовка всех бойцов отряда
+    for _, h in ipairs(self.heroes) do
+        if h.hp > 0 then
+            h:draw()
+        else
+            -- Павший боец: блеклый призрак мембраны
+            love.graphics.push()
+            love.graphics.setColor(0.5, 0.2, 0.2, 0.4)
+            love.graphics.circle("line", h.x, h.y, 20)
+            love.graphics.print("[ПАЛ В БОЮ]", h.x - 30, h.y - 10)
+            love.graphics.pop()
+        end
+    end
+
+    -- Вражеская клетка
     self.enemy:draw()
 
-    -- Отрисовка союзников на столе
+    -- Отрисовка призванных симбионтов
     for idx, ally in ipairs(self.allies) do
-        local ax = 460 + (idx - 1) * 110
-        local ay = 330
+        local ax = 480 + (idx - 1) * 110
+        local ay = 340
         love.graphics.setColor(0.1, 0.8, 0.4, 0.8)
         love.graphics.circle("fill", ax, ay, 20)
         love.graphics.setColor(1, 1, 1, 1)

@@ -10,7 +10,13 @@ local fonts = require("src.ui.fonts")
 local screen = require("src.engine.screen")
 local settings = require("src.engine.settings")
 
-function love.load()
+function love.load(arg)
+    if arg and (arg[1] == "--test" or arg[2] == "--test") then
+        require("tests.test_suite")
+        love.event.quit(0)
+        return
+    end
+
     math.randomseed(os.time())
 
     settings.init()

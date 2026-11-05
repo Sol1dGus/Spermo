@@ -3,7 +3,7 @@ local genetics = {}
 -- 1. Определения аллелей по хромосомам
 genetics.LOCI = {
     CH1_ACROSOME = {
-        name = "Хромосома 1: Акросомальный локус",
+        name = "Хромосома 1: Акросомальный локус (Гидролиз)",
         alleles = {
             ACR_HYPER = {
                 id = "ACR_HYPER",
@@ -29,7 +29,7 @@ genetics.LOCI = {
         }
     },
     CH2_MITOCHONDRIA = {
-        name = "Хромосома 2: Митохондриальный локус",
+        name = "Хромосома 2: Митохондриальный локус (Синтез АТФ)",
         alleles = {
             MITO_HIGH = {
                 id = "MITO_HIGH",
@@ -85,7 +85,7 @@ genetics.LOCI = {
         }
     },
     CH4_MEMBRANE = {
-        name = "Хромосома 4: Мембранный гликокаликс",
+        name = "Хромосома 4: Мембранный гликокаликс (Защита)",
         alleles = {
             MEM_DENSE = {
                 id = "MEM_DENSE",
@@ -117,24 +117,46 @@ function genetics.determine_class(specimen)
     if not specimen or not specimen.phenotype then return "СБАЛАНСИРОВАННАЯ ГАМЕТА" end
 
     local p = specimen.phenotype
+
+    -- Если особь — яйцеклетка (♀)
+    if specimen.unit_type == "oocyte" then
+        if specimen.freak_type == "freak_giant_head" or (p.shield and p.shield >= 12) then
+            return "МАТРИАРХ ЗОНА-ПЕЛЛЮЦИДА ♀"
+        elseif p.bonus_atp and p.bonus_atp >= 2 then
+            return "МИТОХОНДРИАЛЬНЫЙ РЕЗЕРВУАР ♀"
+        elseif specimen.chromosomes and specimen.chromosomes.ch4 == "MEM_CHEMO" then
+            return "ХЕМОТАКСИЧЕСКИЙ МАЯК ♀"
+        else
+            return "ЗРЕЛЫЙ ООЦИТ ♀"
+        end
+    end
+
+    -- Если особь — сперматозоид (♂)
     if specimen.freak_type == "freak_two_headed" or (p.bonus_dmg and p.bonus_dmg >= 3) then
-        return "ФЕРМЕНТНЫЙ ЛИЗАТОР"
+        return "ФЕРМЕНТНЫЙ ЛИЗАТОР ♂"
     elseif specimen.freak_type == "freak_corkscrew" or (p.frequency_hz and p.frequency_hz >= 45) then
-        return "ЖГУТИКОВЫЙ ПЕРЕХВАТЧИК"
+        return "ЖГУТИКОВЫЙ ПЕРЕХВАТЧИК ♂"
     elseif specimen.freak_type == "freak_giant_head" or (p.shield and p.shield >= 6) then
-        return "ХОЛЕСТЕРИНОВЫЙ ТАНК"
+        return "ХОЛЕСТЕРИНОВЫЙ ТАНК ♂"
     elseif p.bonus_atp and p.bonus_atp >= 1 then
-        return "МИТОХОНДРИАЛЬНЫЙ РЕАКТОР"
+        return "МИТОХОНДРИАЛЬНЫЙ РЕАКТОР ♂"
     else
-        return "СБАЛАНСИРОВАННАЯ ГАМЕТА"
+        return "СБАЛАНСИРОВАННАЯ ГАМЕТА ♂"
     end
 end
 
--- 3. Создание случайной гаплоидной особи (Поколение 1)
-function genetics.create_random_specimen(name)
+-- 3. Создание случайного сперматозоида (Поколение 1, ♂)
+function genetics.create_random_specimen(name, unit_type)
+    unit_type = unit_type or "sperm"
+    if unit_type == "oocyte" then
+        return genetics.create_random_oocyte(name)
+    end
+
     local specimen = {
         id = tostring(math.random(100000, 999999)),
         name = name or ("SPERM-" .. string.format("%04X", math.random(0, 0xFFFF))),
+        unit_type = "sperm",
+        gender = "male",
         generation = 1,
         age = 0,
         max_age = 7,
@@ -163,23 +185,60 @@ function genetics.create_random_specimen(name)
     return specimen
 end
 
--- 4. Расчет фенотипа
+-- 4. Создание случайной яйцеклетки (Ооцита, ♀)
+function genetics.create_random_oocyte(name)
+    local specimen = {
+        id = tostring(math.random(100000, 999999)),
+        name = name or ("OVUM-" .. string.format("%04X", math.random(0, 0xFFFF))),
+        unit_type = "oocyte",
+        gender = "female",
+        generation = 1,
+        age = 0,
+        max_age = 7,
+        inbreeding = 0,
+        freak_type = nil,
+        chromosomes = {
+            ch1 = "ACR_NORM",
+            ch2 = "MITO_HIGH",
+            ch3 = "FLA_NORM",
+            ch4 = "MEM_DENSE"
+        }
+    }
+
+    local pool1 = {"ACR_HYPER", "ACR_NORM"}
+    local pool2 = {"MITO_HIGH", "MITO_NORM", "MITO_BURST"}
+    local pool3 = {"FLA_NORM"}
+    local pool4 = {"MEM_DENSE", "MEM_CHEMO"}
+
+    specimen.chromosomes.ch1 = pool1[math.random(#pool1)]
+    specimen.chromosomes.ch2 = pool2[math.random(#pool2)]
+    specimen.chromosomes.ch3 = pool3[math.random(#pool3)]
+    specimen.chromosomes.ch4 = pool4[math.random(#pool4)]
+
+    specimen.phenotype = genetics.calculate_phenotype(specimen)
+    specimen.class_title = genetics.determine_class(specimen)
+    return specimen
+end
+
+-- 5. Расчет фенотипа (с учетом типа клетки ♂/♀)
 function genetics.calculate_phenotype(specimen)
     local ch1 = genetics.LOCI.CH1_ACROSOME.alleles[specimen.chromosomes.ch1]
     local ch2 = genetics.LOCI.CH2_MITOCHONDRIA.alleles[specimen.chromosomes.ch2]
     local ch3 = genetics.LOCI.CH3_AXONEME.alleles[specimen.chromosomes.ch3]
     local ch4 = genetics.LOCI.CH4_MEMBRANE.alleles[specimen.chromosomes.ch4]
 
+    local is_oocyte = (specimen.unit_type == "oocyte")
+
     local p = {
-        max_hp = 30,
-        current_hp = 30,
+        max_hp = is_oocyte and 45 or 30,
+        current_hp = is_oocyte and 45 or 30,
         base_atp = 1,
         max_atp = 10,
-        bonus_atp = (ch2 and ch2.bonus_atp) or 0,
+        bonus_atp = ((ch2 and ch2.bonus_atp) or 0) + (is_oocyte and 1 or 0),
         bonus_dmg = (ch1 and ch1.bonus_dmg) or 0,
-        frequency_hz = (ch3 and ch3.frequency_hz) or 30,
-        initiative = (ch3 and ch3.initiative) or 0,
-        shield = (ch4 and ch4.shield) or 0,
+        frequency_hz = is_oocyte and 0 or ((ch3 and ch3.frequency_hz) or 30),
+        initiative = is_oocyte and -5 or ((ch3 and ch3.initiative) or 0),
+        shield = ((ch4 and ch4.shield) or 0) + (is_oocyte and 6 or 0),
         ros_risk = (ch2 and ch2.ros_risk) or 0,
         ph_optimum = 7.4,
         deck = {}
@@ -188,14 +247,20 @@ function genetics.calculate_phenotype(specimen)
     -- Модификаторы инбредных уродцев (Freak Mutants)
     if specimen.freak_type == "freak_two_headed" then
         p.bonus_dmg = p.bonus_dmg + 3
-        p.frequency_hz = math.max(15, p.frequency_hz - 8)
+        if not is_oocyte then
+            p.frequency_hz = math.max(15, p.frequency_hz - 8)
+        end
     elseif specimen.freak_type == "freak_corkscrew" then
-        p.frequency_hz = p.frequency_hz + 10
+        if not is_oocyte then
+            p.frequency_hz = p.frequency_hz + 10
+        end
         p.max_hp = math.max(15, p.max_hp - 5)
     elseif specimen.freak_type == "freak_giant_head" then
         p.max_hp = p.max_hp + 15
         p.shield = p.shield + 6
-        p.frequency_hz = math.max(12, p.frequency_hz - 14)
+        if not is_oocyte then
+            p.frequency_hz = math.max(12, p.frequency_hz - 14)
+        end
     end
 
     p.current_hp = p.max_hp
@@ -212,22 +277,48 @@ function genetics.calculate_phenotype(specimen)
 
     add_cards(ch1)
     add_cards(ch2)
-    add_cards(ch3)
+    if not is_oocyte then
+        add_cards(ch3)
+    end
     add_cards(ch4)
 
-    table.insert(p.deck, "lactobacillus_ally")
-    table.insert(p.deck, "capacitation_ritual")
-    table.insert(p.deck, "ph_buffer_spray")
+    -- Базовые карты колоды
+    if is_oocyte then
+        table.insert(p.deck, "zona_hardening")
+        table.insert(p.deck, "zona_hardening")
+        table.insert(p.deck, "chemoattractant_wave")
+        table.insert(p.deck, "cytoplasmic_feed")
+        table.insert(p.deck, "cytoplasmic_feed")
+        table.insert(p.deck, "lactobacillus_ally")
+    else
+        table.insert(p.deck, "lactobacillus_ally")
+        table.insert(p.deck, "capacitation_ritual")
+        table.insert(p.deck, "ph_buffer_spray")
+    end
 
     return p
 end
 
--- 5. Мейоз, Кроссинговер и Инбридинг (Mewgenics Breeding)
-function genetics.breed(parent_sperm, donor_ovum)
+-- 6. Мейоз, Кроссинговер и Инбридинг (Mewgenics Breeding)
+function genetics.breed(parent_a, parent_b)
+    -- Определяем кто сперматозоид, а кто ооцит (или если оба одного пола при лабораторном скрещивании)
+    local p_sperm = (parent_a.unit_type == "sperm" and parent_a) or (parent_b.unit_type == "sperm" and parent_b) or parent_a
+    local p_ovum = (parent_a.unit_type == "oocyte" and parent_a) or (parent_b.unit_type == "oocyte" and parent_b) or parent_b
+
+    local next_gen = math.max(parent_a.generation or 1, parent_b.generation or 1) + 1
+
+    -- Шанс 50% сперматозоид (♂), 50% яйцеклетка (♀)
+    local is_boy = (math.random() < 0.5)
+    local unit_type = is_boy and "sperm" or "oocyte"
+    local gender = is_boy and "male" or "female"
+    local prefix = is_boy and "SPERM-GEN" or "OVUM-GEN"
+
     local child = {
         id = tostring(math.random(100000, 999999)),
-        name = "SPERM-GEN" .. (parent_sperm.generation + 1) .. "-" .. string.format("%03X", math.random(0, 0xFFF)),
-        generation = parent_sperm.generation + 1,
+        name = prefix .. next_gen .. "-" .. string.format("%03X", math.random(0, 0xFFF)),
+        unit_type = unit_type,
+        gender = gender,
+        generation = next_gen,
         age = 0,
         max_age = 7,
         chromosomes = {}
@@ -237,20 +328,21 @@ function genetics.breed(parent_sperm, donor_ovum)
     local matches = 0
     local ch_keys = {"ch1", "ch2", "ch3", "ch4"}
     for _, k in ipairs(ch_keys) do
-        if parent_sperm.chromosomes[k] == donor_ovum.chromosomes[k] then
+        if p_sperm.chromosomes[k] == p_ovum.chromosomes[k] then
             matches = matches + 1
         end
     end
 
-    local parent_inbreed = parent_sperm.inbreeding or 0
-    child.inbreeding = math.min(100, math.floor(parent_inbreed * 0.5 + (matches / 4) * 50))
+    local inb_a = parent_a.inbreeding or 0
+    local inb_b = parent_b.inbreeding or 0
+    child.inbreeding = math.min(100, math.floor((inb_a + inb_b) * 0.35 + (matches / 4) * 45))
 
     -- 2. Менделевское наследование и кроссинговер
     for _, k in ipairs(ch_keys) do
         if math.random() < 0.5 then
-            child.chromosomes[k] = parent_sperm.chromosomes[k]
+            child.chromosomes[k] = parent_a.chromosomes[k]
         else
-            child.chromosomes[k] = donor_ovum.chromosomes[k] or parent_sperm.chromosomes[k]
+            child.chromosomes[k] = parent_b.chromosomes[k] or parent_a.chromosomes[k]
         end
 
         -- 10% шанс мутационного кроссинговера
@@ -267,7 +359,6 @@ function genetics.breed(parent_sperm, donor_ovum)
     end
 
     -- 3. Шанс тератозооспермии (Генетический уродец при инбридинге)
-    -- Чем выше инбридинг, тем выше шанс уродца (при 50% инбридинга — шанс 35%)
     local freak_chance = (child.inbreeding / 100) * 0.70
     if math.random() < freak_chance then
         local freak_pool = {"freak_two_headed", "freak_corkscrew", "freak_giant_head"}

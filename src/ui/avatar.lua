@@ -1,7 +1,122 @@
 local avatar = {}
 
+-- Процедурный рендеринг Яйцеклетки (Ооцита ♀) в стиле RimWorld Bio Portrait
+function avatar.draw_oocyte(specimen, cx, cy, scale, time)
+    if not specimen or not specimen.phenotype then return end
+    scale = scale or 1.0
+    time = time or 0
+
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.scale(scale, scale)
+
+    local freak = specimen.freak_type
+    local ch4 = specimen.chromosomes and specimen.chromosomes.ch4
+    local is_dense = (ch4 == "MEM_DENSE")
+    local is_chemo = (ch4 == "MEM_CHEMO")
+
+    local base_radius = (freak == "freak_giant_head" and 48) or 38
+    local pulse = math.sin(time * 3) * 2.0
+
+    -- 1. CORONA RADIATA (Лучистый венец фолликулярных клеток)
+    local ray_count = 14
+    for i = 1, ray_count do
+        local angle = (i / ray_count) * math.pi * 2 + (time * 0.4)
+        local ray_len = base_radius + 12 + math.sin(time * 4 + i) * 3
+        local rx = math.cos(angle) * ray_len
+        local ry = math.sin(angle) * ray_len
+        love.graphics.setColor(1.0, 0.75, 0.35, 0.35 + math.sin(time * 2 + i) * 0.15)
+        love.graphics.circle("fill", rx, ry, 4.5)
+        love.graphics.setColor(1.0, 0.9, 0.6, 0.5)
+        love.graphics.line(math.cos(angle) * (base_radius + 2), math.sin(angle) * (base_radius + 2), rx, ry)
+    end
+
+    -- 2. ZONA PELLUCIDA (Сияющая прозрачная оболочка)
+    love.graphics.setColor(0.98, 0.55, 0.75, 0.25)
+    love.graphics.circle("fill", 0, 0, base_radius + 6 + pulse)
+
+    local rim_color = is_dense and {1.0, 0.85, 0.25, 0.95} or
+                      (is_chemo and {0.2, 0.9, 1.0, 0.95} or {0.98, 0.45, 0.75, 0.95})
+    love.graphics.setColor(rim_color)
+    love.graphics.setLineWidth(3.0)
+    love.graphics.circle("line", 0, 0, base_radius + 4)
+    love.graphics.setColor(1, 1, 1, 0.6)
+    love.graphics.setLineWidth(1.2)
+    love.graphics.circle("line", 0, 0, base_radius + 1)
+
+    -- 3. ЦИТОПЛАЗМА (Ооплазма с питательными везикулами)
+    love.graphics.setColor(0.98, 0.90, 0.94, 0.96)
+    love.graphics.circle("fill", 0, 0, base_radius)
+
+    -- Внутренние липидные гранулы
+    for g = 1, 8 do
+        local ga = (g / 8) * math.pi * 2 + (time * 0.2)
+        local gr = (base_radius * 0.65) + math.sin(time * 2 + g) * 2
+        love.graphics.setColor(1.0, 0.65, 0.80, 0.35)
+        love.graphics.circle("fill", math.cos(ga) * gr, math.sin(ga) * gr, 4.5)
+    end
+
+    -- 4. ЗАРОДЫШЕВЫЙ ПУЗЫРЕК (Ядро)
+    love.graphics.setColor(1.0, 0.85, 0.95, 0.8)
+    love.graphics.circle("fill", 0, 0, 20)
+    love.graphics.setColor(0.9, 0.5, 0.7, 0.6)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.circle("line", 0, 0, 20)
+
+    -- 5. RIMWORLD-ЛИЦО ЯЙЦЕКЛЕТКИ (Милое и выразительное женское лицо)
+    local draw_face = function(fx, fy, fscale)
+        love.graphics.push()
+        love.graphics.translate(fx, fy)
+        love.graphics.scale(fscale, fscale)
+
+        local eye_dist = 11
+        local eye_y = -3
+
+        -- Глаза (выразительные женские с ресницами)
+        love.graphics.setColor(0.12, 0.15, 0.25, 1)
+        love.graphics.circle("fill", -eye_dist, eye_y, 3.2)
+        love.graphics.circle("fill", eye_dist, eye_y, 3.2)
+
+        -- Блики в глазах (двойные кавайные искорки)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.circle("fill", -eye_dist + 1.0, eye_y - 1.0, 1.2)
+        love.graphics.circle("fill", eye_dist + 1.0, eye_y - 1.0, 1.2)
+        love.graphics.circle("fill", -eye_dist - 0.8, eye_y + 1.2, 0.6)
+        love.graphics.circle("fill", eye_dist - 0.8, eye_y + 1.2, 0.6)
+
+        -- Реснички
+        love.graphics.setColor(0.12, 0.15, 0.25, 0.9)
+        love.graphics.setLineWidth(1.4)
+        love.graphics.line(-eye_dist - 3, eye_y - 3, -eye_dist - 6, eye_y - 5)
+        love.graphics.line(-eye_dist - 1, eye_y - 4, -eye_dist - 2, eye_y - 7)
+        love.graphics.line(eye_dist + 3, eye_y - 3, eye_dist + 6, eye_y - 5)
+        love.graphics.line(eye_dist + 1, eye_y - 4, eye_dist + 2, eye_y - 7)
+
+        -- Розовые щечки (нежный румянец)
+        love.graphics.setColor(1.0, 0.45, 0.60, 0.55)
+        love.graphics.ellipse("fill", -eye_dist - 2, eye_y + 6, 4.5, 2.5)
+        love.graphics.ellipse("fill", eye_dist + 2, eye_y + 6, 4.5, 2.5)
+
+        -- Улыбка
+        love.graphics.setColor(0.15, 0.15, 0.25, 0.9)
+        love.graphics.setLineWidth(1.6)
+        love.graphics.arc("line", "open", 0, eye_y + 6, 5, 0.2, math.pi - 0.2)
+
+        love.graphics.pop()
+    end
+
+    if freak == "freak_two_headed" then
+        draw_face(-10, 0, 0.75)
+        draw_face(10, 0, 0.75)
+    else
+        draw_face(0, 0, 1.0)
+    end
+
+    love.graphics.pop()
+end
+
 -- Процедурный рендеринг сперматозоида в стиле RimWorld Bio Portrait
-function avatar.draw(specimen, cx, cy, scale, time)
+function avatar.draw_sperm(specimen, cx, cy, scale, time)
     if not specimen or not specimen.phenotype then return end
     scale = scale or 1.0
     time = time or 0
@@ -92,7 +207,6 @@ function avatar.draw(specimen, cx, cy, scale, time)
         -- Тело головки
         love.graphics.setColor(0.85, 0.95, 1.0, 0.95)
         if freak == "freak_giant_head" then
-            -- Огромная титаническая голова
             love.graphics.ellipse("fill", 14, 0, 42, 32)
             love.graphics.setColor(0.9, 0.6, 0.2, 1)
             love.graphics.setLineWidth(3.5)
@@ -173,6 +287,16 @@ function avatar.draw(specimen, cx, cy, scale, time)
     end
 
     love.graphics.pop()
+end
+
+-- Единая точка входа для рендеринга портрета любой клетки
+function avatar.draw(specimen, cx, cy, scale, time)
+    if not specimen then return end
+    if specimen.unit_type == "oocyte" then
+        avatar.draw_oocyte(specimen, cx, cy, scale, time)
+    else
+        avatar.draw_sperm(specimen, cx, cy, scale, time)
+    end
 end
 
 return avatar

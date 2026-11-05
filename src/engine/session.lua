@@ -120,20 +120,15 @@ local function parse_json(str)
             pos = pos + 1
             return arr
         end
-
         while pos <= len do
-            local val = parse_value()
-            table.insert(arr, val)
+            local v = parse_value()
+            table.insert(arr, v)
             skip_whitespace()
-            local c = str:sub(pos, pos)
-            if c == ',' then
-                pos = pos + 1
-                skip_whitespace()
-            elseif c == ']' then
+            if pos <= len and str:sub(pos, pos) == ']' then
                 pos = pos + 1
                 break
-            else
-                break
+            elseif pos <= len and str:sub(pos, pos) == ',' then
+                pos = pos + 1
             end
         end
         return arr
@@ -147,28 +142,25 @@ local function parse_json(str)
             pos = pos + 1
             return obj
         end
-
         while pos <= len do
             skip_whitespace()
-            if str:sub(pos, pos) ~= '"' then break end
+            if pos <= len and str:sub(pos, pos) == '}' then
+                pos = pos + 1
+                break
+            end
             local key = parse_string()
             skip_whitespace()
-            if str:sub(pos, pos) == ':' then
+            if pos <= len and str:sub(pos, pos) == ':' then
                 pos = pos + 1
             end
-            skip_whitespace()
             local val = parse_value()
             obj[key] = val
             skip_whitespace()
-            local c = str:sub(pos, pos)
-            if c == ',' then
-                pos = pos + 1
-                skip_whitespace()
-            elseif c == '}' then
+            if pos <= len and str:sub(pos, pos) == '}' then
                 pos = pos + 1
                 break
-            else
-                break
+            elseif pos <= len and str:sub(pos, pos) == ',' then
+                pos = pos + 1
             end
         end
         return obj
@@ -209,17 +201,19 @@ function session.has_save()
 end
 
 function session.new_game()
-    local s1 = genetics.create_random_specimen("SPERM-ALPHA")
-    local s2 = genetics.create_random_specimen("SPERM-BETA")
-    local s3 = genetics.create_random_specimen("SPERM-GAMMA")
+    -- Стартовая колония: 2 сперматозоида (♂) и 1 зрелый ооцит (♀)
+    local s1 = genetics.create_random_specimen("SPERM-ALPHA", "sperm")
+    local s2 = genetics.create_random_specimen("SPERM-BETA", "sperm")
+    local o1 = genetics.create_random_oocyte("OVUM-AURORA")
 
     session.data = {
         cycle = 1,
         biomass = 150,
         dna_samples = 2,
-        colony = { s1, s2, s3 },
+        colony = { s1, s2, o1 },
+        squad_ids = { s1.id }, -- Отряд до 4 бойцов
         selected_fighter_id = s1.id,
-        cryo_vault = {}, -- Крио-хранилище замороженных чемпионов
+        cryo_vault = {},
         donor_market = session.generate_market(),
         stats = {
             total_expeditions = 0,
@@ -228,7 +222,7 @@ function session.new_game()
             born_specimens = 3
         },
         active_expedition = nil,
-        pending_event = nil -- Случайное событие цикла
+        pending_event = nil
     }
 
     session.save()
@@ -299,29 +293,114 @@ function session.load()
     if loaded and loaded.colony then
         session.data = loaded
         session.data.cryo_vault = session.data.cryo_vault or {}
+        session.data.squad_ids = session.data.squad_ids or {}
+
         for _, spec in ipairs(session.data.colony) do
+            if not spec.unit_type then
+                if spec.name and spec.name:match("^OVUM") then
+                    spec.unit_type = "oocyte"
+                    spec.gender = "female"
+                else
+                    spec.unit_type = "sperm"
+                    spec.gender = "male"
+                end
+            end
             spec.phenotype = genetics.calculate_phenotype(spec)
             spec.class_title = genetics.determine_class(spec)
         end
         for _, spec in ipairs(session.data.cryo_vault) do
+            if not spec.unit_type then
+                spec.unit_type = (spec.name and spec.name:match("^OVUM")) and "oocyte" or "sperm"
+            end
             spec.phenotype = genetics.calculate_phenotype(spec)
             spec.class_title = genetics.determine_class(spec)
         end
+
+        -- Валидация отряда
+        if #session.data.squad_ids == 0 and #session.data.colony > 0 then
+            table.insert(session.data.squad_ids, session.data.colony[1].id)
+        end
+        session.data.selected_fighter_id = session.data.squad_ids[1] or (session.data.colony[1] and session.data.colony[1].id)
+
         return true
     end
     return false, "Некорректный формат сохранения"
 end
 
-function session.get_selected_fighter()
-    if not session.data or not session.data.colony then return nil end
-    local fid = session.data.selected_fighter_id
+-- ==================== МЕНЕДЖМЕНТ ОТРЯДА (ДО 4 БОЙЦОВ) ====================
+function session.get_squad()
+    if not session.data or not session.data.colony then return {} end
+    session.data.squad_ids = session.data.squad_ids or {}
+
+    local squad = {}
+    local id_map = {}
+    for _, id in ipairs(session.data.squad_ids) do
+        id_map[id] = true
+    end
+
     for _, spec in ipairs(session.data.colony) do
-        if spec.id == fid then
-            return spec
+        if id_map[spec.id] then
+            table.insert(squad, spec)
         end
     end
-    if #session.data.colony > 0 then
+
+    -- Если отряд опустел, добавляем первого доступного бойца
+    if #squad == 0 and #session.data.colony > 0 then
+        table.insert(squad, session.data.colony[1])
+        session.data.squad_ids = { session.data.colony[1].id }
         session.data.selected_fighter_id = session.data.colony[1].id
+    end
+
+    return squad
+end
+
+function session.is_in_squad(spec_id)
+    if not session.data or not session.data.squad_ids then return false end
+    for _, id in ipairs(session.data.squad_ids) do
+        if id == spec_id then return true end
+    end
+    return false
+end
+
+function session.add_to_squad(spec_id)
+    if not session.data then return false, "Нет сессии" end
+    session.data.squad_ids = session.data.squad_ids or {}
+    if #session.data.squad_ids >= 4 then return false, "Отряд уже укомплектован (макс. 4)!" end
+    if session.is_in_squad(spec_id) then return false, "Особь уже в составе отряда!" end
+
+    table.insert(session.data.squad_ids, spec_id)
+    session.data.selected_fighter_id = session.data.squad_ids[1]
+    session.save()
+    return true
+end
+
+function session.remove_from_squad(spec_id)
+    if not session.data or not session.data.squad_ids then return false end
+    for i, id in ipairs(session.data.squad_ids) do
+        if id == spec_id then
+            table.remove(session.data.squad_ids, i)
+            break
+        end
+    end
+    if session.data.selected_fighter_id == spec_id then
+        session.data.selected_fighter_id = session.data.squad_ids[1] or (session.data.colony[1] and session.data.colony[1].id)
+    end
+    session.save()
+    return true
+end
+
+function session.toggle_squad(spec_id)
+    if session.is_in_squad(spec_id) then
+        return session.remove_from_squad(spec_id)
+    else
+        return session.add_to_squad(spec_id)
+    end
+end
+
+function session.get_selected_fighter()
+    local squad = session.get_squad()
+    if #squad > 0 then return squad[1] end
+    if session.data and session.data.colony and #session.data.colony > 0 then
         return session.data.colony[1]
     end
     return nil
@@ -337,9 +416,8 @@ function session.freeze_specimen(idx)
     local spec = table.remove(colony, idx)
     table.insert(session.data.cryo_vault, spec)
 
-    if session.data.selected_fighter_id == spec.id and #colony > 0 then
-        session.data.selected_fighter_id = colony[1].id
-    end
+    -- Удаляем из отряда если особь была экипирована
+    session.remove_from_squad(spec.id)
 
     session.save()
     return true

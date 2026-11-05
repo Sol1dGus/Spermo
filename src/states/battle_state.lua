@@ -5,12 +5,12 @@ local fonts = require("src.ui.fonts")
 local screen = require("src.engine.screen")
 local session = require("src.engine.session")
 
-function battle_state:enter(specimen, enemy_type, expedition_ref)
-    self.specimen = specimen or (session.data and session.get_selected_fighter()) or genetics_mod.create_random_specimen("SPERM-ALPHA")
+function battle_state:enter(squad, enemy_type, expedition_ref)
+    self.squad = squad or (session.data and session.get_squad()) or { genetics_mod.create_random_specimen("SPERM-ALPHA") }
     self.enemy_type = enemy_type or "neutrophil"
     self.expedition_ref = expedition_ref
 
-    self.combat = combat_mod.new(self.specimen, self.enemy_type)
+    self.combat = combat_mod.new(self.squad, self.enemy_type)
     self.dragged_card = nil
 
     -- Фоновые частицы среды микроскопа
@@ -32,7 +32,6 @@ function battle_state:update(dt, mx, my)
     end
     self.combat:update(dt, mx, my)
 
-    -- Обновление частиц взвеси
     for _, p in ipairs(self.particles) do
         p.x = p.x - dt * p.speed
         if p.x < 0 then p.x = 1280 end
@@ -47,12 +46,8 @@ function battle_state:draw()
     -- Декоративная микросетка
     love.graphics.setColor(0.08, 0.14, 0.22, 0.5)
     love.graphics.setLineWidth(1)
-    for gx = 0, 1280, 80 do
-        love.graphics.line(gx, 0, gx, 720)
-    end
-    for gy = 0, 720, 80 do
-        love.graphics.line(0, gy, 1280, gy)
-    end
+    for gx = 0, 1280, 80 do love.graphics.line(gx, 0, gx, 720) end
+    for gy = 0, 720, 80 do love.graphics.line(0, gy, 1280, gy) end
 
     -- Плавающие частицы среды
     for _, p in ipairs(self.particles) do
@@ -77,7 +72,7 @@ function battle_state:draw()
     love.graphics.setColor(ph_color)
     love.graphics.print("Среда pH: " .. string.format("%.1f", ph) .. (ph < 6.0 and " [Кислая]" or " [Оптимум]"), 520, 18)
 
-    -- Кнопка "В Хаб / Меню"
+    -- Кнопка "В Хаб / Отступить"
     love.graphics.setColor(0.12, 0.22, 0.35, 0.9)
     love.graphics.rectangle("fill", 1080, 10, 175, 36, 6, 6)
     love.graphics.setColor(0.25, 0.65, 0.9, 1)
@@ -94,7 +89,7 @@ function battle_state:draw()
     love.graphics.setColor(0.1, 0.85, 1.0, 1.0)
     love.graphics.setLineWidth(3)
     love.graphics.circle("line", atp_x, atp_y, 45)
-    
+
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(0.8, 0.95, 1, 1)
     love.graphics.print("АТФ ЭНЕРГИЯ", atp_x - 38, atp_y - 24)
@@ -127,18 +122,18 @@ function battle_state:draw()
 
     -- 6. Панель боевого лога (слева)
     love.graphics.setColor(0.06, 0.10, 0.16, 0.9)
-    love.graphics.rectangle("fill", 15, 80, 250, 240, 6, 6)
+    love.graphics.rectangle("fill", 15, 75, 230, 220, 6, 6)
     love.graphics.setColor(0.2, 0.5, 0.8, 0.8)
-    love.graphics.rectangle("line", 15, 80, 250, 240, 6, 6)
+    love.graphics.rectangle("line", 15, 75, 230, 220, 6, 6)
 
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(0.3, 0.9, 1.0, 1)
-    love.graphics.print("ЖУРНАЛ БИОРЕАКЦИЙ:", 25, 90)
+    love.graphics.print("БИОЛОГИЧЕСКИЙ ЖУРНАЛ:", 25, 85)
 
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(0.85, 0.9, 0.95, 0.95)
+    love.graphics.setColor(0.8, 0.9, 1, 0.9)
     for idx, log_entry in ipairs(self.combat.logs) do
-        love.graphics.printf(log_entry, 25, 115 + (idx - 1) * 24, 230, "left")
+        love.graphics.printf(log_entry, 25, 110 + (idx - 1) * 22, 210, "left")
     end
 
     -- 7. Модальное окно Победы / Поражения
@@ -152,14 +147,14 @@ function battle_state:draw()
 
         love.graphics.setFont(fonts.big)
         love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.printf(is_vic and "ПОБЕДА!" or "БОЕЦ ПОГИБ!", 410, 260, 460, "center")
+        love.graphics.printf(is_vic and "ПОБЕДА!" or "ОТРЯД ПОГИБ!", 410, 260, 460, "center")
 
         love.graphics.setFont(fonts.bold)
-        love.graphics.printf(is_vic and "Иммунная клетка лизирована!" or "Мембрана разрушена фагоцитами.", 420, 315, 440, "center")
+        love.graphics.printf(is_vic and "Иммунная клетка лизирована!" or "Мембраны разрушены фагоцитами.", 420, 315, 440, "center")
 
         love.graphics.setFont(fonts.small)
         local sub = is_vic and (self.expedition_ref and "Трофеи собраны! Продвижение по тракту продолжается." or "Бой завершен.")
-                           or "Перманентная смерть! Особь удалена из колонии."
+                           or "Перманентная смерть павших бойцов! Возврат в Хаб."
         love.graphics.printf(sub, 420, 345, 440, "center")
 
         love.graphics.setColor(1, 1, 1, 1)
@@ -175,36 +170,48 @@ function battle_state:draw()
 end
 
 function battle_state:finish_battle()
+    local sm = require("src.states.state_manager")
+
     if self.combat.phase == "victory" then
-        self.specimen.phenotype.current_hp = self.combat.hero.hp
+        -- Синхронизируем оставшееся ХП каждого бойца
+        for _, hero in ipairs(self.combat.heroes) do
+            if hero.specimen and hero.specimen.phenotype then
+                hero.specimen.phenotype.current_hp = math.max(1, hero.hp)
+            end
+        end
+
         if self.expedition_ref then
             self.expedition_ref:on_battle_won()
-            local sm = require("src.states.state_manager")
-            sm.switch("expedition", self.specimen)
+            sm.switch("expedition", self.squad)
         else
-            local sm = require("src.states.state_manager")
             sm.switch("hub")
         end
     elseif self.combat.phase == "defeat" then
-        -- Permadeath: удаляем погибшего бойца из колонии
+        -- Permadeath: удаляем погибших бойцов из колонии
         if session.data and session.data.colony then
-            for idx, spec in ipairs(session.data.colony) do
-                if spec.id == self.specimen.id then
-                    table.remove(session.data.colony, idx)
-                    break
+            for _, hero in ipairs(self.combat.heroes) do
+                if hero.hp <= 0 and hero.specimen then
+                    for idx = #session.data.colony, 1, -1 do
+                        if session.data.colony[idx].id == hero.specimen.id then
+                            table.remove(session.data.colony, idx)
+                            break
+                        end
+                    end
+                    session.remove_from_squad(hero.specimen.id)
                 end
             end
-            -- Если колония полностью вымерла, экстренный спасательный образец
+
+            -- Если вся колония погибла — даем аварийного спасательного бойца
             if #session.data.colony == 0 then
                 local survivor = genetics_mod.create_random_specimen("SPERM-SURVIVOR")
                 table.insert(session.data.colony, survivor)
+                session.data.squad_ids = { survivor.id }
             end
-            session.data.selected_fighter_id = session.data.colony[1].id
+
             session.data.active_expedition = nil
             session.advance_cycle()
             session.save()
         end
-        local sm = require("src.states.state_manager")
         sm.switch("hub")
     end
 end
@@ -256,8 +263,8 @@ function battle_state:mousereleased(x, y, button)
         cv.is_dragging = false
         self.dragged_card = nil
 
-        -- Если карту перетащили вверх на поле боя (y < 420) — разыгрываем!
-        if y < 420 then
+        -- Если карту перетащили вверх на поле боя (y < 440) — разыгрываем!
+        if y < 440 then
             local played = self.combat:play_card(cv)
             if not played then
                 self.combat:layout_hand()
