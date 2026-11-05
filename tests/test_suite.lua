@@ -118,26 +118,48 @@ salvage_state:update(0.016)
 salvage_state:draw()
 print("✓ Salvage state rendered without error")
 
--- Export preview screenshot in overview
+-- Helper to save screenshots directly to workspace root
+local function save_to_cwd(img_data, filename)
+    local file_data = img_data:encode("png")
+    local f = io.open(filename, "wb")
+    if f then
+        f:write(file_data:getString())
+        f:close()
+    end
+end
+
+-- Export preview screenshot in Stacklands overview
 local canvas = love.graphics.newCanvas(1280, 720)
 love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
 lab_state:draw()
 love.graphics.setCanvas()
 local img_data = canvas:newImageData()
-img_data:encode("png", "screenshot_cozy_preview.png")
-print("✓ Saved cozy preview screenshot to screenshot_cozy_preview.png")
+save_to_cwd(img_data, "screenshot_stacklands_desk.png")
+print("✓ Saved Stacklands desk preview to screenshot_stacklands_desk.png")
 
--- Test 2.5D Microscope Zoom View
-local camera25d = require("src.engine.camera25d")
-camera25d.set_mode("microscope")
--- simulate camera catching up
-for i = 1, 30 do camera25d.update(0.033, 640, 360) end
+-- Test Mail Modal
+local modals = require("src.ui.modals")
+modals.open("mail")
 love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
 lab_state:draw()
 love.graphics.setCanvas()
-local zoom_data = canvas:newImageData()
-zoom_data:encode("png", "screenshot_microscope_zoom.png")
-print("✓ Saved microscope 2.5D zoom view to screenshot_microscope_zoom.png")
+local mail_data = canvas:newImageData()
+save_to_cwd(mail_data, "screenshot_mail_modal.png")
+print("✓ Saved Mail modal preview to screenshot_mail_modal.png")
+modals.close()
+
+-- Test Journal Modal
+modals.open("journal")
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+lab_state:draw()
+love.graphics.setCanvas()
+local journal_data = canvas:newImageData()
+save_to_cwd(journal_data, "screenshot_journal_modal.png")
+print("✓ Saved Journal modal preview to screenshot_journal_modal.png")
+modals.close()
 
 -- Test Cozy Menu View
 local menu_state = require("src.states.menu_state")
@@ -148,7 +170,7 @@ love.graphics.clear(0, 0, 0, 1)
 menu_state:draw()
 love.graphics.setCanvas()
 local menu_data = canvas:newImageData()
-menu_data:encode("png", "screenshot_menu_cozy.png")
+save_to_cwd(menu_data, "screenshot_menu_cozy.png")
 print("✓ Saved cozy menu screenshot to screenshot_menu_cozy.png")
 
 print("==================================================")
