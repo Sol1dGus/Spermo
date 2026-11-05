@@ -118,7 +118,7 @@ salvage_state:update(0.016)
 salvage_state:draw()
 print("✓ Salvage state rendered without error")
 
--- Export preview screenshot
+-- Export preview screenshot in overview
 local canvas = love.graphics.newCanvas(1280, 720)
 love.graphics.setCanvas(canvas)
 lab_state:draw()
@@ -126,6 +126,18 @@ love.graphics.setCanvas()
 local img_data = canvas:newImageData()
 img_data:encode("png", "screenshot_cozy_preview.png")
 print("✓ Saved cozy preview screenshot to screenshot_cozy_preview.png")
+
+-- Test 2.5D Microscope Zoom View
+local camera25d = require("src.engine.camera25d")
+camera25d.set_mode("microscope")
+-- simulate camera catching up
+for i = 1, 30 do camera25d.update(0.033, 640, 360) end
+love.graphics.setCanvas(canvas)
+lab_state:draw()
+love.graphics.setCanvas()
+local zoom_data = canvas:newImageData()
+zoom_data:encode("png", "screenshot_microscope_zoom.png")
+print("✓ Saved microscope 2.5D zoom view to screenshot_microscope_zoom.png")
 
 print("==================================================")
 print("   ALL CLINIC TESTS PASSED SUCCESSFULLY! (8/8)   ")
