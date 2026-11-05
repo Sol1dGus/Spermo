@@ -103,5 +103,41 @@ assert(bite_ok, "Playing bicephalic_bite should succeed")
 assert(freak_battle.enemy.hp < prev_hp, "Enemy should take double-bite damage")
 print("Mutant attack card resolved! Enemy HP before:", prev_hp, "after:", freak_battle.enemy.hp)
 
+print("--- 7. Testing Physics Slingshot & Ricochet Combat Engine ---")
+local physics_combat = require("src.engine.physics_combat")
+local p_battle = physics_combat.new(squad, "neutrophil")
+assert(#p_battle.heroes == 4, "Physics arena should have 4 heroes")
+assert(p_battle.phase == "aiming", "Initial phase should be aiming")
+print("Physics arena initialized. Hero 1:", p_battle.heroes[1].name, "Mass:", p_battle.heroes[1].mass, "Power:", p_battle.heroes[1].launch_power)
+
+-- Test aiming and slingshot launch
+local hero1 = p_battle.heroes[1]
+local aim_ok = p_battle:start_aiming(hero1.x, hero1.y)
+assert(aim_ok, "start_aiming on hero position should succeed")
+assert(p_battle.is_aiming, "is_aiming should be true")
+
+p_battle:update_aiming(hero1.x - 80, hero1.y - 40)
+p_battle:release_aim()
+assert(hero1.is_flying, "Hero should be flying after release")
+assert(p_battle.phase == "flying", "Phase should be flying")
+assert(hero1.vx > 0, "Hero should have positive horizontal launch velocity")
+print("Hero successfully launched! Initial vx:", math.floor(hero1.vx), "vy:", math.floor(hero1.vy))
+
+-- Simulate physics steps
+for step = 1, 60 do
+    p_battle:update(0.016, 0, 0)
+end
+print("Simulated 60 physics frames. Hero position:", math.floor(hero1.x), math.floor(hero1.y), "Combo:", p_battle.combo_ricochets)
+
+-- Test direct strike on enemy
+local enemy_hp_before = p_battle.enemy.hp
+hero1.x = p_battle.enemy.x - 30
+hero1.y = p_battle.enemy.y
+hero1.vx = 400
+hero1.vy = 0
+p_battle:strike_enemy(hero1)
+assert(p_battle.enemy.hp < enemy_hp_before, "Enemy should take damage from physical strike")
+print("Physical strike resolved! Enemy HP before:", enemy_hp_before, "after:", p_battle.enemy.hp)
+
 print(">>> ALL TESTS PASSED SUCCESSFULLY! <<<")
 love.event.quit(0)

@@ -413,12 +413,6 @@ function hub_state:draw_drop_stations()
     love.graphics.rectangle("line", gate_x, sy, gate_w, sh, 8, 8)
 
     local squad = session.get_squad()
-    local squad_deck_size = 0
-    for _, m in ipairs(squad) do
-        if m.phenotype and m.phenotype.deck then
-            squad_deck_size = squad_deck_size + #m.phenotype.deck
-        end
-    end
 
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(0.3, 0.95, 1, 1)
@@ -426,7 +420,7 @@ function hub_state:draw_drop_stations()
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(0.7, 0.88, 1, 0.85)
-    love.graphics.printf("Колода: " .. squad_deck_size .. " к.", gate_x + 130, sy + 10, gate_w - 142, "right")
+    love.graphics.printf("Готовы к рикошету", gate_x + 105, sy + 10, gate_w - 118, "right")
 
     -- 4 слота отряда в сетке 2x2
     local slot_w = 112
@@ -598,7 +592,7 @@ function hub_state:draw_rimworld_inspector()
     love.graphics.rectangle("line", ix + 225, tab_y, tab_w, tab_h, 4, 4)
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(is_tab_deck and {1, 1, 1, 1} or {0.7, 0.85, 0.95, 0.75})
-    love.graphics.printf("КОЛОДА ДНК (" .. deck_count .. ")", ix + 225, tab_y + 6, tab_w, "center")
+    love.graphics.printf("БИО-АРСЕНАЛ (" .. deck_count .. ")", ix + 225, tab_y + 6, tab_w, "center")
 
     if is_tab_stats then
         -- 2. Инкубационная смотровая камера с RimWorld аватаром

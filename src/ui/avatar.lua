@@ -1,13 +1,16 @@
 local avatar = {}
 
 -- Процедурный рендеринг Яйцеклетки (Ооцита ♀) в стиле RimWorld Bio Portrait
-function avatar.draw_oocyte(specimen, cx, cy, scale, time)
+function avatar.draw_oocyte(specimen, cx, cy, scale, time, angle)
     if not specimen or not specimen.phenotype then return end
     scale = scale or 1.0
     time = time or 0
 
     love.graphics.push()
     love.graphics.translate(cx, cy)
+    if angle and angle ~= 0 then
+        love.graphics.rotate(angle)
+    end
     love.graphics.scale(scale, scale)
 
     local freak = specimen.freak_type
@@ -116,13 +119,16 @@ function avatar.draw_oocyte(specimen, cx, cy, scale, time)
 end
 
 -- Процедурный рендеринг сперматозоида в стиле RimWorld Bio Portrait
-function avatar.draw_sperm(specimen, cx, cy, scale, time)
+function avatar.draw_sperm(specimen, cx, cy, scale, time, angle)
     if not specimen or not specimen.phenotype then return end
     scale = scale or 1.0
     time = time or 0
 
     love.graphics.push()
     love.graphics.translate(cx, cy)
+    if angle and angle ~= 0 then
+        love.graphics.rotate(angle)
+    end
     love.graphics.scale(scale, scale)
 
     local ch1 = specimen.chromosomes.ch1
@@ -290,12 +296,12 @@ function avatar.draw_sperm(specimen, cx, cy, scale, time)
 end
 
 -- Единая точка входа для рендеринга портрета любой клетки
-function avatar.draw(specimen, cx, cy, scale, time)
+function avatar.draw(specimen, cx, cy, scale, time, angle)
     if not specimen then return end
     if specimen.unit_type == "oocyte" then
-        avatar.draw_oocyte(specimen, cx, cy, scale, time)
+        avatar.draw_oocyte(specimen, cx, cy, scale, time, angle)
     else
-        avatar.draw_sperm(specimen, cx, cy, scale, time)
+        avatar.draw_sperm(specimen, cx, cy, scale, time, angle)
     end
 end
 
