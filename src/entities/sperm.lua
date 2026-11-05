@@ -38,7 +38,7 @@ function sperm:update(dt)
     -- Симуляция волнообразного изгиба жгутика
     for i = 1, self.tail_segments do
         local progress = i / self.tail_segments
-        local amp = (progress * 18) -- амплитуда нарастает к кончику хвоста
+        local amp = (progress * 18)
         local wave = math.sin(self.time * 6 - progress * 7) * amp
 
         self.tail_points[i].x = self.x - (i * (self.tail_length / self.tail_segments))
@@ -63,10 +63,10 @@ end
 function sperm:draw()
     love.graphics.push()
 
-    -- 1. Отрисовка жгутика (светящаяся линия микротрубочек)
+    -- 1. Отрисовка жгутика
     love.graphics.setLineWidth(self.capacitated and 3.5 or 2.5)
     if self.capacitated then
-        love.graphics.setColor(0.3, 0.9, 1.0, 0.9) -- Неоново-лазурный при капацитации
+        love.graphics.setColor(0.3, 0.9, 1.0, 0.9)
     else
         love.graphics.setColor(0.2, 0.7, 0.9, 0.7)
     end
@@ -80,7 +80,6 @@ function sperm:draw()
         love.graphics.line(points)
     end
 
-    -- Если мутация FLA_TWIN — рисуем второй жгутик со сдвигом фазы
     if self.is_twin then
         love.graphics.setColor(0.2, 0.8, 0.6, 0.6)
         local twin_points = {self.x, self.y}
@@ -95,24 +94,21 @@ function sperm:draw()
         end
     end
 
-    -- 2. Средний отдел (Митохондриальная спираль - оранжевое свечение энергии)
+    -- 2. Средний отдел
     love.graphics.setColor(1.0, 0.6, 0.1, 0.8)
     love.graphics.circle("fill", self.x - 14, self.y, 6)
 
-    -- 3. Головка (Овальное ядро + Акросомный колпачок)
-    -- Внешнее биолюминесцентное свечение (Halo)
+    -- 3. Головка
     love.graphics.setColor(0.2, 0.6, 1.0, 0.25)
     love.graphics.ellipse("fill", self.x, self.y, 22, 14)
 
-    -- Само тело ядра
     love.graphics.setColor(0.85, 0.95, 1.0, 0.95)
     love.graphics.ellipse("fill", self.x, self.y, 16, 10)
 
-    -- Акросома на переднем полюсе
     if self.specimen.chromosomes.ch1 == "ACR_HYPER" then
-        love.graphics.setColor(1.0, 0.2, 0.4, 0.9) -- Агрессивно-красный для гиперакрозина
+        love.graphics.setColor(1.0, 0.2, 0.4, 0.9)
     else
-        love.graphics.setColor(0.2, 1.0, 0.7, 0.85) -- Изумрудный для стандарта
+        love.graphics.setColor(0.2, 1.0, 0.7, 0.85)
     end
     love.graphics.arc("fill", self.x + 8, self.y, 8, -math.pi / 2, math.pi / 2)
 
@@ -120,7 +116,6 @@ function sperm:draw()
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.print(self.name, self.x - 50, self.y - 45)
 
-    -- Полоска ХП
     local bar_w = 100
     local bar_h = 10
     local bar_x = self.x - 50
@@ -134,8 +129,8 @@ function sperm:draw()
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w * hp_pct, bar_h, 3, 3)
 
     if self.shield > 0 then
-        love.graphics.setColor(0.2, 0.7, 1.0, 0.9)
-        love.graphics.print("🛡️ " .. self.shield, bar_x + bar_w + 6, bar_y - 2)
+        love.graphics.setColor(0.2, 0.7, 1.0, 0.95)
+        love.graphics.print("[" .. self.shield .. "]", bar_x + bar_w + 4, bar_y - 2)
     end
 
     love.graphics.setColor(1, 1, 1, 0.9)

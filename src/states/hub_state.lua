@@ -311,15 +311,26 @@ function hub_state:draw_petri_dish()
     -- Подсветка цели скрещивания при перетаскивании гаметы в чашке
     if self.dragged_cell then
         local dc = self.dragged_cell
+        local dc_type = dc.spec.unit_type or "sperm"
         for _, other in ipairs(self.petri_cells) do
             if other ~= dc then
                 local dist = math.sqrt((dc.x - other.x)^2 + (dc.y - other.y)^2)
                 if dist < 65 then
-                    love.graphics.setColor(1.0, 0.3, 0.6, 0.4 + math.sin(self.time * 8) * 0.2)
-                    love.graphics.circle("fill", other.x, other.y, 48)
-                    love.graphics.setColor(1, 1, 1, 1)
-                    love.graphics.setFont(fonts.bold)
-                    love.graphics.printf("ОПЛОДОТВОРЕНИЕ (40 БМ)", other.x - 90, other.y - 50, 180, "center")
+                    local other_type = other.spec.unit_type or "sperm"
+                    local can_mate = (dc_type ~= other_type)
+                    if can_mate then
+                        love.graphics.setColor(1.0, 0.3, 0.6, 0.4 + math.sin(self.time * 8) * 0.2)
+                        love.graphics.circle("fill", other.x, other.y, 48)
+                        love.graphics.setColor(1, 1, 1, 1)
+                        love.graphics.setFont(fonts.bold)
+                        love.graphics.printf("ОПЛОДОТВОРЕНИЕ (40 БМ)", other.x - 90, other.y - 50, 180, "center")
+                    else
+                        love.graphics.setColor(0.5, 0.5, 0.6, 0.25)
+                        love.graphics.circle("line", other.x, other.y, 44)
+                        love.graphics.setColor(1, 0.45, 0.45, 0.9)
+                        love.graphics.setFont(fonts.small)
+                        love.graphics.printf("ОДНОПОЛЫЕ ГАМЕТЫ", other.x - 80, other.y - 45, 160, "center")
+                    end
                     love.graphics.setFont(fonts.regular)
                 end
             end
@@ -1067,8 +1078,17 @@ function hub_state:mousereleased(x, y, button)
         if other ~= c then
             local dist = math.sqrt((c.x - other.x)^2 + (c.y - other.y)^2)
             if dist < 65 then
-                self:breed_two_cells(c.spec, other.spec, (c.x + other.x) / 2, (c.y + other.y) / 2)
-                -- Возвращаем сброшенную клетку на безопасную дистанцию
+                local c_type = c.spec.unit_type or "sperm"
+                local other_type = other.spec.unit_type or "sperm"
+                if c_type == other_type then
+                    if c_type == "sperm" then
+                        self.status_msg = "Сперматозоиды ♂ не могут оплодотворять друг друга! Нужна яйцеклетка ♀."
+                    else
+                        self.status_msg = "Яйцеклетки ♀ не могут оплодотворять друг друга! Нужен сперматозоид ♂."
+                    end
+                else
+                    self:breed_two_cells(c.spec, other.spec, (c.x + other.x) / 2, (c.y + other.y) / 2)
+                end
                 c.x = math.max(90, math.min(740, c.x))
                 c.y = math.max(130, math.min(450, c.y))
                 return
@@ -1121,7 +1141,11 @@ function hub_state:mousereleased(x, y, button)
     local eco_x = 25
     local eco_w = 255
     if x >= eco_x and x <= eco_x + eco_w and y >= sy and y <= sy + sh then
-        self:breed_with_cell(c.spec)
+        if c.spec.unit_type == "oocyte" then
+            self.status_msg = "На станции ЭКО донорский ооцит ♀! Для скрещивания перетащите сперматозоид ♂."
+        else
+            self:breed_with_cell(c.spec)
+        end
         c.x = math.max(90, math.min(740, c.x))
         c.y = math.max(130, math.min(450, c.y))
         return

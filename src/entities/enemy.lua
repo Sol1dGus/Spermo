@@ -1,6 +1,8 @@
 local enemy = {}
 enemy.__index = enemy
 
+local fonts = require("src.ui.fonts")
+
 function enemy.new(type_id, x, y)
     local self = setmetatable({}, enemy)
     self.type_id = type_id or "neutrophil"
@@ -15,11 +17,11 @@ function enemy.new(type_id, x, y)
         self.hp = 45
         self.armor = 2
         self.shield = 0
-        self.color = {0.85, 0.4, 0.5, 0.9} -- Розовато-гранулярный
+        self.color = {0.85, 0.4, 0.5, 0.9}
         self.actions = {
-            {name = "Выброс внеклеточных сетей ДНК (NETs)", type = "attack_debuff", power = 7, desc = "Наносит 7 урона и сжигает 1 АТФ"},
-            {name = "Окислительный взрыв миелопероксидазы", type = "attack", power = 10, desc = "Наносит 10 урона"},
-            {name = "Фагоцитарная оболочка", type = "defend", power = 8, desc = "Получает 8 щита"}
+            {name = "Выброс сетей ДНК (NETs)", type = "attack_debuff", power = 7, desc = "7 урона и -1 АТФ"},
+            {name = "Окислительный взрыв", type = "attack", power = 10, desc = "10 урона"},
+            {name = "Фагоцитарная оболочка", type = "defend", power = 8, desc = "8 щита"}
         }
     else
         self.name = "Тканевой Макрофаг"
@@ -28,11 +30,11 @@ function enemy.new(type_id, x, y)
         self.hp = 65
         self.armor = 4
         self.shield = 0
-        self.color = {0.6, 0.3, 0.7, 0.9} -- Пурпурный фагоцит
+        self.color = {0.6, 0.3, 0.7, 0.9}
         self.actions = {
-            {name = "Лизосомальное поглощение", type = "attack_heal", power = 8, desc = "Наносит 8 урона и исцеляет себя на 4"},
-            {name = "Выброс хемокинов воспаления", type = "attack", power = 12, desc = "Наносит 12 урона"},
-            {name = "Мембранное уплотнение", type = "defend", power = 12, desc = "Получает 12 щита"}
+            {name = "Лизосомальный дренаж", type = "attack_heal", power = 8, desc = "8 урона и исцеление"},
+            {name = "Хемокины воспаления", type = "attack", power = 12, desc = "12 урона"},
+            {name = "Мембранное уплотнение", type = "defend", power = 12, desc = "12 щита"}
         }
     end
 
@@ -60,7 +62,6 @@ end
 
 function enemy:take_damage(amount, damage_type)
     local effective_damage = amount
-    -- Учет брони против физ/кислотных атак
     if damage_type ~= "ros" then
         effective_damage = math.max(1, effective_damage - self.armor)
     end
@@ -97,7 +98,6 @@ function enemy:execute_turn(combat, target)
         self.shield = self.shield + action.power
     end
 
-    -- Переход к следующему намерению
     self.current_action_idx = (self.current_action_idx % #self.actions) + 1
 end
 
@@ -114,11 +114,9 @@ function enemy:draw()
         table.insert(pts, py)
     end
 
-    -- Биолюминесцентная аура врага
     love.graphics.setColor(self.color[1], self.color[2], self.color[3], 0.2)
     love.graphics.circle("fill", self.x, self.y, 65)
 
-    -- Тело клетки
     love.graphics.setColor(self.color[1], self.color[2], self.color[3], 0.85)
     if #pts >= 6 then
         love.graphics.polygon("fill", pts)
@@ -132,20 +130,28 @@ function enemy:draw()
 
     -- 2. Индикатор намерений (Intent) над врагом
     local intent = self:get_intent()
-    love.graphics.setColor(1, 0.85, 0.2, 0.9)
-    love.graphics.rectangle("fill", self.x - 110, self.y - 100, 220, 26, 4, 4)
+    local box_w = 260
+    local box_h = 32
+    love.graphics.setColor(1, 0.85, 0.2, 0.95)
+    love.graphics.rectangle("fill", self.x - box_w / 2, self.y - 110, box_w, box_h, 6, 6)
     love.graphics.setColor(0.1, 0.1, 0.15, 1)
-    love.graphics.print("Намерение: " .. intent.name, self.x - 105, self.y - 95)
+
+    local type_badge = (intent.type == "attack" and "АТАКА") or
+                       (intent.type == "attack_debuff" and "АТАКА + ДЕБАФФ") or
+                       (intent.type == "attack_heal" and "ВАМПИРИЗМ") or "ЗАЩИТА"
+    love.graphics.setFont(fonts.bold)
+    love.graphics.printf(type_badge .. ": " .. intent.name, self.x - box_w / 2 + 5, self.y - 104, box_w - 10, "center")
 
     -- 3. Имя и ХП
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print(self.name, self.x - 80, self.y - 65)
+    love.graphics.setFont(fonts.regular)
+    love.graphics.printf(self.name, self.x - 120, self.y - 74, 240, "center")
 
     -- Полоска ХП
-    local bar_w = 140
+    local bar_w = 160
     local bar_h = 12
-    local bar_x = self.x - 70
-    local bar_y = self.y - 45
+    local bar_x = self.x - bar_w / 2
+    local bar_y = self.y - 48
 
     love.graphics.setColor(0.1, 0.1, 0.15, 0.8)
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 3, 3)
@@ -155,12 +161,13 @@ function enemy:draw()
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w * hp_pct, bar_h, 3, 3)
 
     if self.shield > 0 then
-        love.graphics.setColor(0.2, 0.7, 1.0, 0.9)
-        love.graphics.print("🛡️ " .. self.shield, bar_x + bar_w + 6, bar_y - 2)
+        love.graphics.setColor(0.2, 0.7, 1.0, 0.95)
+        love.graphics.print("[" .. self.shield .. "]", bar_x + bar_w + 4, bar_y - 2)
     end
 
     love.graphics.setColor(1, 1, 1, 0.95)
-    love.graphics.print(self.hp .. "/" .. self.max_hp .. " (Броня: " .. self.armor .. ")", bar_x + 15, bar_y)
+    love.graphics.setFont(fonts.small)
+    love.graphics.printf(self.hp .. "/" .. self.max_hp .. " (Броня: " .. self.armor .. ")", bar_x, bar_y - 1, bar_w, "center")
 
     love.graphics.pop()
 end

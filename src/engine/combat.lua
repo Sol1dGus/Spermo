@@ -8,10 +8,10 @@ local sperm_mod = require("src.entities.sperm")
 local oocyte_mod = require("src.entities.oocyte")
 
 local FORMATIONS = {
-    [1] = { {x = 280, y = 260} },
-    [2] = { {x = 240, y = 210}, {x = 340, y = 330} },
-    [3] = { {x = 230, y = 180}, {x = 350, y = 270}, {x = 220, y = 370} },
-    [4] = { {x = 220, y = 180}, {x = 340, y = 250}, {x = 200, y = 330}, {x = 320, y = 410} }
+    [1] = { {x = 380, y = 260} },
+    [2] = { {x = 360, y = 190}, {x = 440, y = 330} },
+    [3] = { {x = 350, y = 160}, {x = 450, y = 250}, {x = 340, y = 360} },
+    [4] = { {x = 340, y = 150}, {x = 460, y = 220}, {x = 330, y = 300}, {x = 450, y = 380} }
 }
 
 function combat.new(squad_or_specimen, enemy_type)
@@ -165,7 +165,7 @@ function combat:get_alive_heroes()
     return alive
 end
 
-function combat:play_card(cv)
+function combat:play_card(cv, explicit_target)
     if self.phase ~= "player_turn" then return false end
     if self.atp < cv.data.cost then
         self:add_log("Недостаточно АТФ! Нужно: " .. cv.data.cost .. ", в пуле: " .. self.atp)
@@ -180,19 +180,22 @@ function combat:play_card(cv)
         user = alive[1]
     end
 
-    -- Таргетинг карты
-    local target = self.enemy
-    if cv.data.target_type == "ally" then
-        -- Находим наиболее раненого живого бойца
-        local most_hurt = user
-        for _, h in ipairs(self.heroes) do
-            if h.hp > 0 and (h.hp / h.max_hp) < (most_hurt.hp / most_hurt.max_hp) then
-                most_hurt = h
+    -- Таргетинг карты: явный выбор игрока имеет наивысший приоритет
+    local target = explicit_target
+    if not target then
+        if cv.data.target_type == "enemy" then
+            target = self.enemy
+        elseif cv.data.target_type == "ally" then
+            local most_hurt = user
+            for _, h in ipairs(self.heroes) do
+                if h.hp > 0 and (h.hp / h.max_hp) < (most_hurt.hp / most_hurt.max_hp) then
+                    most_hurt = h
+                end
             end
+            target = most_hurt
+        elseif cv.data.target_type == "self" then
+            target = user
         end
-        target = most_hurt
-    elseif cv.data.target_type == "self" then
-        target = user
     end
 
     -- Списание АТФ
