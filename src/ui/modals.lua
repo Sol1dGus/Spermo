@@ -177,11 +177,10 @@ function modals.draw_mail()
             dy = dy + 20
         end
 
-        -- Инструкция по сдаче
-        local footer_y = ry + rh - 50
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(theme.amber_vial)
-        love.graphics.print("Инструкция: выведите эмбрион на столе и перетащите карту в почтовый конверт!", rx + 24, footer_y)
+        -- Кнопка выбора этого заказа как активного для конверта на верстаке
+        local is_active = (session.data.selected_order_idx == cur_idx)
+        local btn_str = is_active and "✓ АКТИВНЫЙ ЗАКАЗ В КОНВЕРТЕ НА ВЕРСТАКЕ" or "ВЫБРАТЬ ЭТОТ ЗАКАЗ В КОНВЕРТ НА СТОЛЕ"
+        theme.draw_button(btn_str, rx + 24, ry + rh - 55, rw - 48, 38, false, is_active and "green" or "amber")
     end
 end
 
@@ -298,9 +297,9 @@ function modals.draw_shop()
     -- Товары каталога
     local items = {
         { id = "centrifuge", name = "Промышленная центрифуга ЦЛМН-40", desc = "Уже установлена в вашей лаборатории. Очищает архивные ампулы со свалки.", price = "УСТАНОВЛЕНО", bought = true },
-        { id = "laser_hatching", name = "Лазерный хетчинг-модуль Zilos", desc = "Истончает блестящую оболочку ооцита. Повышает шанс приживаемости эмбриона на +30%.", price = "450 ₽", cost = 450, bought = session.data.upgrades.laser_hatching },
-        { id = "micro_injector", name = "Пьезо-манипулятор ИКСИ Prime", desc = "Сверхточная микроигла. Снижает фрагментацию ДНК новорожденных зигот на 5%.", price = "320 ₽", cost = 320, bought = false },
-        { id = "cryo_vault", name = "Крио-резервуар жидкого азота Дьюара", desc = "Хранилище для заморозки ценных образцов на будущие смены.", price = "280 ₽", cost = 280, bought = false }
+        { id = "laser_hatching", name = "Лазерный хетчинг-модуль Zilos", desc = "Устанавливается на верстак! Истончает блестящую оболочку ооцита и повышает жизнеспособность эмбриона (+15% к Крюгеру).", price = "450 ₽", cost = 450, bought = session.data.upgrades.laser_hatching },
+        { id = "micro_injector", name = "Пьезо-манипулятор ИКСИ Prime", desc = "Сверхточная микроигла. Автоматически снижает фрагментацию ДНК всех рождающихся зигот на 5%.", price = "320 ₽", cost = 320, bought = session.data.upgrades.micro_injector },
+        { id = "cryo_vault", name = "Крио-сосуд Дьюара LN2 Expansion", desc = "Улучшает крио-холодильник на верстаке. Снижает клеточный стресс при разморозке образцов.", price = "280 ₽", cost = 280, bought = session.data.upgrades.cryo_vault }
     }
 
     local iy = y + 75
@@ -482,7 +481,7 @@ function modals.mousepressed(x, y, button)
         return true
     end
 
-    -- В почте: выбор письма слева
+    -- В почте: выбор письма слева или кнопка выбора в конверт справа
     if modals.active == "mail" then
         local lx = 160 + 30
         local ly = 60 + 70
@@ -494,17 +493,41 @@ function modals.mousepressed(x, y, button)
                 return true
             end
         end
+
+        -- Кнопка «Выбрать этот заказ в конверт» справа
+        local rx = 160 + 380
+        local ry = 60 + 70
+        local rw = 960 - 410
+        local rh = 600 - 90
+        local btn_y = ry + rh - 55
+        if x >= rx + 24 and x <= rx + rw - 24 and y >= btn_y and y <= btn_y + 38 then
+            session.save()
+            modals.close() -- Закрываем почту, сразу возвращаясь к готовому конверту на верстаке!
+            return true
+        end
     end
 
-    -- В магазине: покупка лазерного хетчинга
+    -- В магазине: покупка любого оборудования
     if modals.active == "shop" then
-        local iy = 70 + 75 + 115 -- Второй товар (лазерный хетчинг)
-        if x >= 200 + 880 - 210 and x <= 200 + 880 - 60 and y >= iy + 35 and y <= iy + 71 then
-            if not session.data.upgrades.laser_hatching and session.data.funds >= 450 then
-                session.data.funds = session.data.funds - 450
-                session.data.upgrades.laser_hatching = true
-                session.save()
-                return true
+        local x_shop = 200
+        local y_shop = 70
+        local w_shop = 880
+        local shop_items = {
+            { key = "laser_hatching", cost = 450, idx = 1 },
+            { key = "micro_injector", cost = 320, idx = 2 },
+            { key = "cryo_vault",     cost = 280, idx = 3 }
+        }
+        for _, it in ipairs(shop_items) do
+            local iy = y_shop + 75 + it.idx * 115
+            local bx = x_shop + w_shop - 210
+            local by = iy + 35
+            if x >= bx and x <= bx + 150 and y >= by and y <= by + 36 then
+                if not session.data.upgrades[it.key] and session.data.funds >= it.cost then
+                    session.data.funds = session.data.funds - it.cost
+                    session.data.upgrades[it.key] = true
+                    session.save()
+                    return true
+                end
             end
         end
     end

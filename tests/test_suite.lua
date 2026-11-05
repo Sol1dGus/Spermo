@@ -177,11 +177,12 @@ save_to_cwd(fridge_data, "screenshot_fridge_modal.png")
 print("✓ Saved Fridge modal preview to screenshot_fridge_modal.png")
 modals.close()
 
--- Test Free Camera Zoom (140% Zoom)
-lab_state.camera.zoom = 1.4
-lab_state.camera.target_zoom = 1.4
-lab_state.camera.x = 80
-lab_state.camera.y = -40
+-- Test Free Camera Zoom (140% Zoom) with Laser Hatching active
+session.data.upgrades.laser_hatching = true
+lab_state.camera.zoom = 1.3
+lab_state.camera.target_zoom = 1.3
+lab_state.camera.x = 60
+lab_state.camera.y = -30
 love.graphics.setCanvas(canvas)
 love.graphics.clear(0, 0, 0, 1)
 lab_state:draw()

@@ -35,7 +35,7 @@ end
 
 function lab_state:screen_to_world(sx, sy)
     local cx = 640
-    local cy = 410
+    local cy = 365
     local z = self.camera.zoom
     local wx = (sx - cx - self.camera.x) / z + cx
     local wy = (sy - cy - self.camera.y) / z + cy
@@ -44,7 +44,7 @@ end
 
 function lab_state:world_to_screen(wx, wy)
     local cx = 640
-    local cy = 410
+    local cy = 365
     local z = self.camera.zoom
     local sx = (wx - cx) * z + cx + self.camera.x
     local sy = (wy - cy) * z + cy + self.camera.y
@@ -81,15 +81,15 @@ function lab_state:draw()
 
     -- 2. Камера верстака: масштабирование и панорамирование стола!
     love.graphics.push()
-    love.graphics.translate(640 + self.camera.x, 410 + self.camera.y)
+    love.graphics.translate(640 + self.camera.x, 365 + self.camera.y)
     love.graphics.scale(self.camera.zoom, self.camera.zoom)
-    love.graphics.translate(-640, -410)
+    love.graphics.translate(-640, -365)
 
-    -- Рабочий коврик в центре стола (Большая чистая площадка)
-    local mat_x = 150
-    local mat_y = 190
-    local mat_w = 980
-    local mat_h = 475
+    -- Рабочий коврик в центре стола (Большая просторная рабочая зона)
+    local mat_x = 30
+    local mat_y = 65
+    local mat_w = 1220
+    local mat_h = 605
 
     love.graphics.setColor(theme.desk_mat[1], theme.desk_mat[2], theme.desk_mat[3], 0.72)
     love.graphics.rectangle("fill", mat_x, mat_y, mat_w, mat_h, 12, 12)
