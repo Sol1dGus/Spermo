@@ -118,6 +118,15 @@ salvage_state:update(0.016)
 salvage_state:draw()
 print("✓ Salvage state rendered without error")
 
+-- Export preview screenshot
+local canvas = love.graphics.newCanvas(1280, 720)
+love.graphics.setCanvas(canvas)
+lab_state:draw()
+love.graphics.setCanvas()
+local img_data = canvas:newImageData()
+img_data:encode("png", "screenshot_cozy_preview.png")
+print("✓ Saved cozy preview screenshot to screenshot_cozy_preview.png")
+
 print("==================================================")
 print("   ALL CLINIC TESTS PASSED SUCCESSFULLY! (8/8)   ")
 print("==================================================")
