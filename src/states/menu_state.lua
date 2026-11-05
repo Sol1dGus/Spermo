@@ -2,19 +2,20 @@ local menu_state = {}
 local fonts = require("src.ui.fonts")
 local state_manager = require("src.states.state_manager")
 local session = require("src.engine.session")
+local theme = require("src.ui.theme")
+local assets = require("src.engine.assets")
 
 function menu_state:enter()
     self.selected_btn = 1
     self.time = 0
     self.has_save = session.has_save()
 
-    -- Формируем кнопки с учетом наличия сохранения
     self.buttons = {}
     if self.has_save then
         table.insert(self.buttons, {
             id = "continue",
             text = "ПРОДОЛЖИТЬ СМЕНУ",
-            sub = "Вернуться к текущим пациентам, микроскопу и архивным образцам"
+            sub = "Вернуться к текущему верстаку, чашке Петри и заказам"
         })
     end
 
@@ -36,7 +37,7 @@ function menu_state:enter()
         sub = "Завершить работу приложения"
     })
 
-    -- Фоновые плавающие клетки
+    -- Фоновые плавающие клетки в теплой питательной среде
     self.swimmers = {}
     for i = 1, 4 do
         local segments = 20
@@ -45,25 +46,25 @@ function menu_state:enter()
         table.insert(self.swimmers, {
             x = math.random(100, 1200),
             y = math.random(150, 650),
-            speed = math.random(30, 65),
-            freq = math.random(25, 45),
-            scale = math.random(7, 12) / 10,
-            alpha = math.random(30, 75) / 100,
+            speed = math.random(25, 55),
+            freq = math.random(25, 40),
+            scale = math.random(8, 13) / 10,
+            alpha = math.random(25, 60) / 100,
             tail = tail,
             segments = segments,
             offset = math.random() * 10
         })
     end
 
-    -- Взвешенные частицы питательной среды
+    -- Теплые пылинки в лучах настольной лампы
     self.particles = {}
-    for i = 1, 70 do
+    for i = 1, 60 do
         table.insert(self.particles, {
             x = math.random(0, 1280),
             y = math.random(0, 720),
             r = math.random(1, 3.5),
-            speed = math.random(10, 25),
-            alpha = math.random(20, 50) / 100
+            speed = math.random(8, 20),
+            alpha = math.random(20, 55) / 100
         })
     end
 end
@@ -71,13 +72,14 @@ end
 function menu_state:update(dt, mx, my)
     self.time = self.time + dt
 
-    -- Обновление частиц
+    -- Обновление пылинок
     for _, p in ipairs(self.particles) do
         p.x = p.x - dt * p.speed
+        p.y = p.y + math.sin(self.time + p.x) * 0.2
         if p.x < -10 then p.x = 1290 end
     end
 
-    -- Обновление плавающих клеток
+    -- Обновление клеток
     for _, sw in ipairs(self.swimmers) do
         sw.x = sw.x + dt * sw.speed
         if sw.x > 1400 then
@@ -93,14 +95,14 @@ function menu_state:update(dt, mx, my)
         end
     end
 
-    -- Проверка наведения мыши на кнопки
+    -- Проверка наведения мыши
     if mx and my then
         local btn_w = 460
-        local btn_h = 56
+        local btn_h = 58
         local btn_x = 640 - btn_w / 2
-        local start_y = 295
+        local start_y = 275
         for idx = 1, #self.buttons do
-            local btn_y = start_y + (idx - 1) * 78
+            local btn_y = start_y + (idx - 1) * 82
             if mx >= btn_x and mx <= btn_x + btn_w and my >= btn_y and my <= btn_y + btn_h then
                 self.selected_btn = idx
             end
@@ -109,25 +111,34 @@ function menu_state:update(dt, mx, my)
 end
 
 function menu_state:draw()
-    -- 1. Глубокий микроскопический фон
-    love.graphics.setColor(0.04, 0.07, 0.12, 1)
-    love.graphics.rectangle("fill", 0, 0, 1280, 720)
+    -- 1. Теплый фон мастерской (Ghibli / ReStory арт или процедурное темное дерево)
+    local custom_bg = assets.get_background("lab_desk")
+    if custom_bg then
+        love.graphics.setColor(1, 1, 1, 0.45)
+        love.graphics.draw(custom_bg, 0, 0, 0, 1280 / custom_bg:getWidth(), 720 / custom_bg:getHeight())
+        -- Затемняющая теплая виньетка
+        love.graphics.setColor(0.10, 0.08, 0.07, 0.65)
+        love.graphics.rectangle("fill", 0, 0, 1280, 720)
+    else
+        love.graphics.setColor(0.12, 0.10, 0.09, 1.0)
+        love.graphics.rectangle("fill", 0, 0, 1280, 720)
+    end
 
-    -- Декоративная измерительная сетка
-    love.graphics.setColor(0.08, 0.14, 0.22, 0.45)
+    -- Тонкая латунная координатная разметка
+    love.graphics.setColor(0.35, 0.28, 0.18, 0.2)
     love.graphics.setLineWidth(1)
     for gx = 0, 1280, 80 do love.graphics.line(gx, 0, gx, 720) end
     for gy = 0, 720, 80 do love.graphics.line(0, gy, 1280, gy) end
 
-    -- Взвесь микрочастиц
+    -- Теплые частицы пыли в луче лампы
     for _, p in ipairs(self.particles) do
-        love.graphics.setColor(0.2, 0.8, 1.0, p.alpha)
+        love.graphics.setColor(1.0, 0.85, 0.45, p.alpha * 0.7)
         love.graphics.circle("fill", p.x, p.y, p.r)
     end
 
-    -- Плавающие клетки на заднем плане
+    -- Плавающие биолюминесцентные клетки на заднем плане (золотисто-янтарные)
     for _, sw in ipairs(self.swimmers) do
-        love.graphics.setColor(0.2, 0.7, 0.9, sw.alpha * 0.7)
+        love.graphics.setColor(0.85, 0.65, 0.25, sw.alpha * 0.6)
         love.graphics.setLineWidth(2 * sw.scale)
         local pts = {sw.x, sw.y}
         for _, pt in ipairs(sw.tail) do
@@ -135,74 +146,95 @@ function menu_state:draw()
             table.insert(pts, pt.y)
         end
         if #pts >= 4 then love.graphics.line(pts) end
-        -- Головка
-        love.graphics.setColor(0.3, 0.9, 1.0, sw.alpha)
+        -- Головка клетки
+        love.graphics.setColor(1.0, 0.82, 0.40, sw.alpha * 0.8)
         love.graphics.ellipse("fill", sw.x, sw.y, 11 * sw.scale, 7 * sw.scale)
     end
 
-    -- 2. Заголовок логотипа игры
+    -- Мягкое радиальное свечение настольной лампы по центру
+    love.graphics.setBlendMode("add")
+    love.graphics.setColor(1.0, 0.82, 0.45, 0.06)
+    love.graphics.circle("fill", 640, 150, 420)
+    love.graphics.setBlendMode("alpha")
+
+    -- 2. Заголовок и логотип клиники
     local title_pulse = math.sin(self.time * 2) * 2
     love.graphics.setFont(fonts.big)
-    love.graphics.setColor(0.1, 0.6, 0.85, 0.35)
-    love.graphics.printf("SPERMO", 2, 85 + title_pulse + 2, 1280, "center")
-    love.graphics.printf("SPERMO", -2, 85 + title_pulse - 2, 1280, "center")
 
-    love.graphics.setColor(0.25, 0.95, 1.0, 1.0)
-    love.graphics.printf("SPERMO", 0, 85 + title_pulse, 1280, "center")
+    -- Тень заголовка
+    love.graphics.setColor(0.06, 0.04, 0.03, 0.8)
+    love.graphics.printf("SPERMO", 2, 80 + title_pulse + 2, 1280, "center")
+
+    -- Благородное золотое тиснение логотипа
+    love.graphics.setColor(theme.lamp_warm)
+    love.graphics.printf("SPERMO", 0, 80 + title_pulse, 1280, "center")
 
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(0.9, 0.7, 0.3, 0.95)
-    love.graphics.printf("РЕПРОДУКТИВНАЯ КЛИНИКА & БИО-СЕЛЕКЦИЯ", 0, 140, 1280, "center")
+    love.graphics.setColor(theme.brass_metal)
+    love.graphics.printf("КЛИНИКА РЕПРОДУКТИВНОЙ ГЕНЕТИКИ & ЭКО", 0, 138, 1280, "center")
 
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(0.6, 0.8, 0.95, 0.8)
-    love.graphics.printf("СИМУЛЯТОР МЕДИЦИНСКОЙ ГЕНЕТИКИ, ЭКО И СКЛАДА АРХИВНЫХ АМПУЛ", 0, 170, 1280, "center")
+    love.graphics.setColor(theme.paper_base)
+    love.graphics.printf("ТАКТИЛЬНЫЙ СИМУЛЯТОР СЕЛЕКЦИИ И ЛАБОРАТОРНОГО ВЕРСТАКА", 0, 168, 1280, "center")
 
-    -- 3. Кнопки меню
+    -- Декоративная разделительная латунная черта
+    love.graphics.setColor(theme.brass_clip)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.line(440, 195, 840, 195)
+    love.graphics.circle("fill", 640, 195, 4)
+
+    -- 3. Кнопки меню (в стиле теплого орехового дерева с латунной каймой)
     local btn_w = 460
-    local btn_h = 56
+    local btn_h = 58
     local btn_x = 640 - btn_w / 2
-    local start_y = 265
+    local start_y = 275
 
     for idx, btn in ipairs(self.buttons) do
-        local btn_y = start_y + (idx - 1) * 78
+        local btn_y = start_y + (idx - 1) * 82
         local is_sel = (idx == self.selected_btn)
 
-        if is_sel then
-            love.graphics.setColor(0.2, 0.8, 1.0, 0.25)
-            love.graphics.rectangle("fill", btn_x - 6, btn_y - 4, btn_w + 12, btn_h + 8, 10, 10)
+        -- Тень кнопки
+        love.graphics.setColor(0, 0, 0, 0.4)
+        love.graphics.rectangle("fill", btn_x + 3, btn_y + 4, btn_w, btn_h, 8, 8)
 
-            love.graphics.setColor(0.12, 0.35, 0.55, 0.95)
+        if is_sel then
+            -- Золотистая подсветка выбора
+            love.graphics.setColor(0.95, 0.75, 0.35, 0.25)
+            love.graphics.rectangle("fill", btn_x - 4, btn_y - 4, btn_w + 8, btn_h + 8, 10, 10)
+
+            -- Тело активной кнопки
+            love.graphics.setColor(0.32, 0.22, 0.15, 0.98)
             love.graphics.rectangle("fill", btn_x, btn_y, btn_w, btn_h, 8, 8)
-            love.graphics.setColor(0.3, 0.95, 1.0, 1)
+            love.graphics.setColor(theme.lamp_warm)
             love.graphics.setLineWidth(2.5)
             love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h, 8, 8)
         else
-            love.graphics.setColor(0.08, 0.13, 0.20, 0.85)
+            -- Пассивная кнопка (темное дерево)
+            love.graphics.setColor(0.20, 0.16, 0.13, 0.92)
             love.graphics.rectangle("fill", btn_x, btn_y, btn_w, btn_h, 8, 8)
-            love.graphics.setColor(0.2, 0.45, 0.65, 0.7)
-            love.graphics.setLineWidth(1.5)
+            love.graphics.setColor(theme.brass_clip)
+            love.graphics.setLineWidth(1.2)
             love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h, 8, 8)
         end
 
         love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(is_sel and {1, 1, 1, 1} or {0.8, 0.9, 0.95, 0.9})
-        love.graphics.printf(btn.text, btn_x, btn_y + 10, btn_w, "center")
+        love.graphics.setColor(is_sel and theme.lamp_warm or theme.paper_base)
+        love.graphics.printf(btn.text, btn_x, btn_y + 11, btn_w, "center")
 
         love.graphics.setFont(fonts.small)
-        love.graphics.setColor(is_sel and {0.3, 0.95, 1.0, 0.95} or {0.5, 0.7, 0.85, 0.7})
-        love.graphics.printf(btn.sub, btn_x, btn_y + 34, btn_w, "center")
+        love.graphics.setColor(is_sel and {1, 0.95, 0.85, 0.95} or theme.ink_muted)
+        love.graphics.printf(btn.sub, btn_x, btn_y + 35, btn_w, "center")
     end
 
     -- 4. Нижний футер с подсказками
-    love.graphics.setColor(0.08, 0.12, 0.18, 0.85)
+    love.graphics.setColor(0.12, 0.10, 0.09, 0.95)
     love.graphics.rectangle("fill", 0, 680, 1280, 40)
-    love.graphics.setColor(0.2, 0.5, 0.7, 0.6)
+    love.graphics.setColor(theme.brass_clip)
     love.graphics.line(0, 680, 1280, 680)
 
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(0.65, 0.85, 1.0, 0.9)
-    love.graphics.printf("[F11] Полноэкранный режим  |  [Стрелки/Мышь] Выбор  |  [Enter/Клик] Подтвердить  |  [Esc] Выход", 0, 692, 1280, "center")
+    love.graphics.setColor(theme.paper_base)
+    love.graphics.printf("[F11] Полноэкранный режим  |  [Стрелки / Мышь] Выбор  |  [Enter / Клик] Войти  |  [Esc] Выход", 0, 692, 1280, "center")
 
     love.graphics.setFont(fonts.regular)
 end
@@ -232,11 +264,11 @@ end
 function menu_state:mousepressed(x, y, button)
     if button ~= 1 then return end
     local btn_w = 460
-    local btn_h = 56
+    local btn_h = 58
     local btn_x = 640 - btn_w / 2
-    local start_y = 265
+    local start_y = 275
     for idx = 1, #self.buttons do
-        local btn_y = start_y + (idx - 1) * 78
+        local btn_y = start_y + (idx - 1) * 82
         if x >= btn_x and x <= btn_x + btn_w and y >= btn_y and y <= btn_y + btn_h then
             self:activate_button(idx)
             return

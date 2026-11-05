@@ -139,6 +139,18 @@ local zoom_data = canvas:newImageData()
 zoom_data:encode("png", "screenshot_microscope_zoom.png")
 print("✓ Saved microscope 2.5D zoom view to screenshot_microscope_zoom.png")
 
+-- Test Cozy Menu View
+local menu_state = require("src.states.menu_state")
+menu_state:enter()
+menu_state:update(0.016, 640, 360)
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+menu_state:draw()
+love.graphics.setCanvas()
+local menu_data = canvas:newImageData()
+menu_data:encode("png", "screenshot_menu_cozy.png")
+print("✓ Saved cozy menu screenshot to screenshot_menu_cozy.png")
+
 print("==================================================")
 print("   ALL CLINIC TESTS PASSED SUCCESSFULLY! (8/8)   ")
 print("==================================================")
