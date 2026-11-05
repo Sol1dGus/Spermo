@@ -100,6 +100,7 @@ function clinic.generate_orders(count)
             local t = table.remove(pool, idx)
             table.insert(orders, {
                 id = t.id .. "_" .. math.random(100, 999),
+                template_id = t.id,
                 client_name = t.client_name,
                 title = t.title,
                 category = t.category,

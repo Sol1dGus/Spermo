@@ -127,13 +127,13 @@ function lab_state:draw_reception_and_client_window()
 
     -- Касса / Бюджет
     love.graphics.setColor(0.15, 0.12, 0.10, 0.9)
-    love.graphics.rectangle("fill", 175, 10, 150, 36, 6, 6)
+    love.graphics.rectangle("fill", 215, 10, 110, 36, 6, 6)
     love.graphics.setColor(theme.brass_metal)
     love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", 175, 10, 150, 36, 6, 6)
+    love.graphics.rectangle("line", 215, 10, 110, 36, 6, 6)
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(theme.lamp_warm)
-    love.graphics.printf((session.data and session.data.funds or 0) .. " ₽", 175, 18, 150, "center")
+    love.graphics.printf((session.data and session.data.funds or 0) .. " ₽", 215, 18, 110, "center")
 
     -- Кнопка "На Био-Свалку"
     theme.draw_button("АРХИВ БИО-УТИЛЯ", 900, 10, 175, 36, false, "amber")
@@ -146,10 +146,10 @@ function lab_state:draw_reception_and_client_window()
     local win_w = 545
     local win_h = 185
 
-    -- Рама окна мастерской
-    love.graphics.setColor(0.08, 0.07, 0.06, 0.9)
+    -- Рама окна мастерской (полупрозрачная, чтобы был виден вечерний город за окном)
+    love.graphics.setColor(0.08, 0.07, 0.06, 0.4)
     love.graphics.rectangle("fill", win_x, win_y, win_w, win_h, 8, 8)
-    love.graphics.setColor(0.24, 0.18, 0.14, 1.0)
+    love.graphics.setColor(0.24, 0.18, 0.14, 0.8)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", win_x, win_y, win_w, win_h, 8, 8)
 
@@ -157,33 +157,36 @@ function lab_state:draw_reception_and_client_window()
         -- Портрет персонажа (если есть арт в assets/clients/ или процедурный силуэт)
         local custom_portrait = assets.get_client_portrait(order.id)
         if custom_portrait then
+            local pw = custom_portrait:getWidth()
+            local ph = custom_portrait:getHeight()
+            local target_h = win_h - 10
+            local scale = target_h / ph
+            local target_w = pw * scale
+            local px = win_x + 8
+            local py = win_y + (win_h - target_h)
+
             love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(custom_portrait, win_x + 10, win_y + 10, 0, 160 / custom_portrait:getWidth(), 160 / custom_portrait:getHeight())
+            love.graphics.draw(custom_portrait, px, py, 0, scale, scale)
         else
             -- Процедурный силуэт клиента у стойки
             local sil_cx = win_x + 55
             local sil_cy = win_y + 115
             love.graphics.setColor(0.22, 0.28, 0.32, 0.95)
-            -- Плечи
             love.graphics.ellipse("fill", sil_cx, sil_cy + 40, 48, 25)
-            -- Голова
             love.graphics.circle("fill", sil_cx, sil_cy - 15, 26)
-            -- Глаза / Аксессуар в зависимости от типа
             love.graphics.setColor(theme.lamp_warm)
             if order.is_illegal then
-                -- Биохакер в кибер-очках
                 love.graphics.rectangle("fill", sil_cx - 16, sil_cy - 20, 32, 8, 2, 2)
             else
-                -- Обычный клиент
                 love.graphics.circle("fill", sil_cx - 8, sil_cy - 16, 3)
                 love.graphics.circle("fill", sil_cx + 8, sil_cy - 16, 3)
             end
         end
 
         -- Облачко реплики клиента (Speech bubble)
-        local bx = win_x + 115
+        local bx = win_x + 145
         local by = win_y + 12
-        local bw = win_w - 128
+        local bw = win_w - 155
         local bh = win_h - 24
 
         -- Тень облачка
@@ -209,7 +212,7 @@ function lab_state:draw_reception_and_client_window()
         -- Цитата / реплика диалога
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(theme.ink_muted)
-        love.graphics.printf(order.dialogue, bx + 14, by + 32, bw - 28, "left")
+        love.graphics.printf(order.dialogue, bx + 14, by + 46, bw - 28, "left")
 
         -- Гонорар за заказ
         love.graphics.setFont(fonts.small)
@@ -224,11 +227,37 @@ end
 
 -- ==================== 3. СТОЛЕШНИЦА ВЕРСТАКА ====================
 function lab_state:draw_workbench_surface()
+    local custom_bg = assets.get_background("lab_desk")
+    local mx = 395
+    local my = 215
+    local mw = 480
+    local mh = 445
+
+    if custom_bg then
+        -- Стол уже нарисован на фоне! Рисуем полупрозрачный мат для окуляра и инструментов по центру:
+        love.graphics.setColor(theme.desk_mat[1], theme.desk_mat[2], theme.desk_mat[3], 0.72)
+        love.graphics.rectangle("fill", mx, my, mw, mh, 10, 10)
+        love.graphics.setColor(0.08, 0.12, 0.12, 0.6)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", mx, my, mw, mh, 10, 10)
+
+        -- Сетка
+        love.graphics.setColor(theme.desk_grid)
+        love.graphics.setLineWidth(1)
+        for gx = mx + 20, mx + mw - 10, 30 do
+            love.graphics.line(gx, my + 10, gx, my + mh - 10)
+        end
+        for gy = my + 20, my + mh - 10, 30 do
+            love.graphics.line(mx + 10, gy, mx + mw - 10, gy)
+        end
+        return
+    end
+
     local dy = 205
     local dw = 1280
     local dh = 515
 
-    -- Массивный дубовый верстак
+    -- Массивный дубовый верстак (процедурный фоллбек)
     love.graphics.setColor(theme.bg_desk)
     love.graphics.rectangle("fill", 0, dy, dw, dh)
 
@@ -238,12 +267,7 @@ function lab_state:draw_workbench_surface()
     love.graphics.setColor(0.24, 0.20, 0.17, 1)
     love.graphics.line(0, dy + 2, dw, dy + 2)
 
-    -- Большой темный коврик для точных работ по центру (Cutting/diagnostic mat)
-    local mx = 395
-    local my = dy + 10
-    local mw = 480
-    local mh = 445
-
+    -- Большой темный коврик для точных работ по центру
     love.graphics.setColor(theme.desk_mat)
     love.graphics.rectangle("fill", mx, my, mw, mh, 10, 10)
     love.graphics.setColor(0.08, 0.12, 0.12, 0.6)
