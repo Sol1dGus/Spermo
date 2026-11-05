@@ -314,10 +314,14 @@ function lab_state:keypressed(key)
         return
     end
 
+    if card_stack.keypressed and card_stack.keypressed(key) then
+        return
+    end
+
     if key == "escape" then
         session.save()
         state_manager.switch("menu")
-    elseif key == "r" or key == "space" then
+    elseif key == "r" then
         -- Сброс камеры
         self.camera.target_zoom = 1.0
         self.camera.target_x = 0

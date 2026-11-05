@@ -224,9 +224,13 @@ function session.new_game()
         unrestored_vials = {},    -- Купленные на свалке ампулы, ожидающие центрифуги
         cryo_archive = {},        -- Долгосрочное крио-хранилище
         upgrades = {
+            microscope_tier = 1,  -- 1 = Лупа/Оптика x100, 2 = Фазовый контраст x400, 3 = FISH-флуоресцентный x1000
             centrifuge = true,    -- Центрифуга для очистки утиля
+            centrifuge_tier = 1,  -- 1 = Базовая, 2 = Перколл-градиент
             icsi_needle = true,   -- Игла ИКСИ для оплодотворения
-            laser_hatching = false -- Лазерный хетчинг
+            micro_injector = false, -- Пьезо-манипулятор ИКСИ (-5% к фрагментации ДНК)
+            laser_hatching = false, -- Лазерный хетчинг Zilos (+15% к Крюгеру)
+            cryo_vault = false    -- Крио-резервуар Дьюара
         },
         stats = {
             orders_completed = 0,
@@ -288,6 +292,15 @@ function session.perform_icsi(sperm_spec, ovum_spec)
     local embryo = genetics.breed(sperm_spec, ovum_spec)
     embryo.name = "ЗИГОТА-" .. embryo.name
     embryo.is_embryo = true
+    embryo.stage = "ЗИГОТА 2n (День 1)"
+
+    if session.data.upgrades and session.data.upgrades.micro_injector then
+        embryo.dna_fragmentation = math.max(1, (embryo.dna_fragmentation or 8) - 5)
+    end
+
+    local p = genetics.calculate_phenotype(embryo)
+    embryo.phenotype = p
+    embryo.gardner_score = (p.kruger_normality >= 90 and "4AA") or (p.kruger_normality >= 75 and "3AB") or (p.kruger_normality >= 55 and "2BB") or "1CC"
 
     table.insert(session.data.active_specimens, 1, embryo)
     session.data.selected_specimen_idx = 1

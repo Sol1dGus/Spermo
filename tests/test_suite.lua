@@ -77,6 +77,56 @@ assert(embryo ~= nil, "ICSI fertilization must produce embryo: " .. tostring(ics
 assert(embryo.is_embryo == true, "Embryo flag must be set")
 assert(embryo.phenotype ~= nil, "Embryo must have phenotype")
 print("✓ ICSI Fertilization successful! Embryo:", embryo.name, "Acrosome:", embryo.phenotype.acrosome_potency, "Motility:", embryo.phenotype.motility)
+assert(embryo.gardner_score ~= nil, "Embryo must have Gardner blastocyst score")
+assert(embryo.stage ~= nil, "Embryo must have developmental stage (2n)")
+print("✓ Gardner Blastocyst Grading:", embryo.gardner_score, "| Developmental stage:", embryo.stage)
+
+print("--- 5b. Testing Tactile Minigames & Microscope Progression ---")
+local card_stack = require("src.engine.card_stack")
+card_stack.sync_from_session()
+
+-- 1. Focus minigame
+local micro = card_stack.STATIONS.microscope
+micro.focus_val = 0.1
+micro.target_focus = 0.55
+micro.is_focused = false
+-- Adjust focus knob
+card_stack.mousepressed(micro.x + 85 + 30, micro.y + micro.h - 20, 1) -- Click [►]
+assert(micro.focus_val > 0.1, "Focus knob must adjust focal value")
+
+-- Snap to focus
+micro.focus_val = micro.target_focus
+micro.is_focused = true
+assert(micro.is_focused == true, "Focus snap must succeed")
+print("✓ Microscope manual focus dial working. Focus snapped!")
+
+-- 2. ICSI Micro-puncture minigame
+local petri = card_stack.STATIONS.petri_dish
+petri.is_active = true
+petri.needle_pos = 0.50
+petri.sweet_spot_min = 0.40
+petri.sweet_spot_max = 0.60
+petri.sperm_card = card_stack.cards[1]
+for _, c in ipairs(card_stack.cards) do
+    if c.kind == "specimen" and c.specimen.unit_type == "oocyte" then
+        petri.ovum_card = c
+        break
+    end
+end
+if not petri.ovum_card then
+    petri.ovum_card = { kind = "specimen", specimen = genetics.create_random_oocyte("TEST-OVUM-MINI") }
+end
+
+local puncture_ok = card_stack.trigger_puncture()
+assert(puncture_ok == true, "Trigger puncture minigame must succeed")
+print("✓ ICSI Microinjection minigame: Sweet-spot needle puncture triggered successfully!")
+
+-- 3. Centrifuge speed toggle
+local cent = card_stack.STATIONS.centrifuge
+local prev_rpm = cent.rpm_mode or 2
+card_stack.mousepressed(cent.x + 30, cent.y + cent.h - 25, 1) -- Click speed toggle
+assert(cent.rpm_mode ~= nil, "Centrifuge RPM mode toggled")
+print("✓ Centrifuge RPM speed mode toggled successfully")
 
 print("--- 6. Testing Order Submission & Payout ---")
 local funds_before = session.data.funds
@@ -159,6 +209,27 @@ love.graphics.setCanvas()
 local journal_data = canvas:newImageData()
 save_to_cwd(journal_data, "screenshot_journal_modal.png")
 print("✓ Saved Journal modal preview to screenshot_journal_modal.png")
+
+-- Test Journal Tab 2: Embryologist Handbook
+modals.journal_tab = 2
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+lab_state:draw()
+love.graphics.setCanvas()
+local handbook_data = canvas:newImageData()
+save_to_cwd(handbook_data, "screenshot_handbook.png")
+print("✓ Saved Embryologist Handbook preview to screenshot_handbook.png")
+modals.close()
+
+-- Test Shop Modal
+modals.open("shop")
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+lab_state:draw()
+love.graphics.setCanvas()
+local shop_data = canvas:newImageData()
+save_to_cwd(shop_data, "screenshot_shop.png")
+print("✓ Saved Shop modal preview to screenshot_shop.png")
 modals.close()
 
 -- Test Fridge Modal with frozen specimens

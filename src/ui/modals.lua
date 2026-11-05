@@ -184,12 +184,34 @@ function modals.draw_mail()
     end
 end
 
--- ==================== 2. ЖУРНАЛ ЭМБРИОЛОГА (ЭНЦИКЛОПЕДИЯ) ====================
+-- ==================== 2. ЖУРНАЛ ЭМБРИОЛОГА (ЭНЦИКЛОПЕДИЯ & СПРАВОЧНИК) ====================
+modals.journal_tab = 1 -- 1: Статистика & Локусы, 2: Справочник репродуктолога, 3: Оборудование
+
 function modals.draw_journal()
     local x = 140
     local y = 60
     local w = 1000
     local h = 600
+
+    -- Вкладки над журналом
+    local tab_w = 230
+    local tab_h = 32
+    local tab_y = y - 42
+
+    local tab_titles = {
+        "1. СТАТУС И ЛОКУСЫ",
+        "2. СПРАВОЧНИК ЭМБРИОЛОГА",
+        "3. ОБОРУДОВАНИЕ"
+    }
+
+    for i, title in ipairs(tab_titles) do
+        local tx = x + (i - 1) * (tab_w + 12)
+        local is_sel = (modals.journal_tab == i)
+        theme.draw_button(title, tx, tab_y, tab_w, tab_h, false, is_sel and "amber" or "wood")
+    end
+
+    -- Кнопка закрытия
+    theme.draw_button("ЗАКРЫТЬ [Esc]", x + w - 150, tab_y, 140, tab_h, false, "secondary")
 
     -- Разворот старинной книги
     love.graphics.setColor(0.24, 0.16, 0.10, 1) -- Кожаный переплет
@@ -207,80 +229,200 @@ function modals.draw_journal()
     love.graphics.setColor(theme.paper_base)
     love.graphics.rectangle("fill", x + 30 + pw, py, pw, ph, 6, 6)
 
-    -- Кнопка закрытия
-    theme.draw_button("ЗАКРЫТЬ [Esc]", x + w - 160, y - 45, 130, 34, false, "secondary")
-
-    -- ЛЕВАЯ СТРАНИЦА: Дневник смены и статистика клиники
     local lx = x + 40
-    local ly = py + 25
-    love.graphics.setFont(fonts.title)
-    love.graphics.setColor(theme.ink_dark)
-    love.graphics.print("ДНЕВНИК ЛАБОРАТОРИИ", lx, ly)
-
-    ly = ly + 40
-    love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(theme.ink_muted)
-    love.graphics.print("Статус репродуктивного центра «NOVAGEN»", lx, ly)
-
-    ly = ly + 30
-    local function draw_journal_row(label, val)
-        love.graphics.setFont(fonts.regular)
-        love.graphics.setColor(theme.ink_dark)
-        love.graphics.print(label, lx, ly)
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(theme.amber_vial)
-        love.graphics.print(tostring(val), lx + pw - 120, ly)
-        ly = ly + 28
-    end
-
-    draw_journal_row("Текущий рабочий день:", (session.data and session.data.day or 1))
-    draw_journal_row("Бюджет клиники (₽):", (session.data and session.data.funds or 0) .. " ₽")
-    draw_journal_row("Врачебная репутация:", (session.data and session.data.reputation or 50) .. " / 100")
-    draw_journal_row("Подозрение биоэтики:", (session.data and session.data.suspicion or 0) .. " %")
-    draw_journal_row("Выполнено заказов:", (session.data and session.data.stats.orders_completed or 0))
-    draw_journal_row("Выведено мутантов-фриков:", (session.data and session.data.stats.freaks_bred or 0))
-    draw_journal_row("Всего заработано:", (session.data and session.data.stats.total_earned or 0) .. " ₽")
-
-    ly = ly + 20
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(theme.ink_muted)
-    love.graphics.printf("«Генетика — это не случайность, а кропотливая селекция. Смешивайте аллели в чашке Петри и спасайте забытые гены со свалки био-утиля.»\n— Проф. Мечников, 1982 г.", lx, ly, pw - 40, "left")
-
-    -- ПРАВАЯ СТРАНИЦА: Атлас хромосомных локусов (CH1 - CH4)
+    local ly = py + 20
     local rx = x + 50 + pw
-    local ry = py + 25
-    love.graphics.setFont(fonts.title)
-    love.graphics.setColor(theme.ink_dark)
-    love.graphics.print("АТЛАС ЛОКУСОВ (КАРИОТИП)", rx, ry)
+    local ry = py + 20
 
-    ry = ry + 40
-    local function draw_locus_block(locus_name, desc, examples)
+    -- ==================== ВКЛАДКА 1: СТАТУС КЛИНИКИ И АТЛАС ЛОКУСОВ ====================
+    if modals.journal_tab == 1 then
+        -- ЛЕВАЯ СТРАНИЦА: Дневник смены и статистика
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("ДНЕВНИК ЛАБОРАТОРИИ", lx, ly)
+
+        ly = ly + 36
         love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(theme.clipboard_wood)
-        love.graphics.print(locus_name, rx, ry)
-        ry = ry + 18
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.print("Статус репродуктивного центра «NOVAGEN»", lx, ly)
+
+        ly = ly + 28
+        local function draw_journal_row(label, val)
+            love.graphics.setFont(fonts.regular)
+            love.graphics.setColor(theme.ink_dark)
+            love.graphics.print(label, lx, ly)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.amber_vial)
+            love.graphics.print(tostring(val), lx + pw - 120, ly)
+            ly = ly + 26
+        end
+
+        draw_journal_row("Текущий рабочий день:", (session.data and session.data.day or 1))
+        draw_journal_row("Бюджет клиники (₽):", (session.data and session.data.funds or 0) .. " ₽")
+        draw_journal_row("Врачебная репутация:", (session.data and session.data.reputation or 50) .. " / 100")
+        draw_journal_row("Подозрение биоэтики:", (session.data and session.data.suspicion or 0) .. " %")
+        draw_journal_row("Выполнено заказов:", (session.data and session.data.stats.orders_completed or 0))
+        draw_journal_row("Выведено мутантов-фриков:", (session.data and session.data.stats.freaks_bred or 0))
+        draw_journal_row("Всего заработано:", (session.data and session.data.stats.total_earned or 0) .. " ₽")
+
+        ly = ly + 20
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.printf("«Генетика — это не случайность, а кропотливая селекция. Смешивайте аллели в чашке Петри и спасайте забытые гены со свалки био-утиля.»\n— Проф. Мечников, 1982 г.", lx, ly, pw - 40, "left")
+
+        -- ПРАВАЯ СТРАНИЦА: Атлас локусов (CH1 - CH4)
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("АТЛАС ЛОКУСОВ (КАРИОТИП)", rx, ry)
+
+        ry = ry + 36
+        local function draw_locus_block(locus_name, desc, examples)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.clipboard_wood)
+            love.graphics.print(locus_name, rx, ry)
+            ry = ry + 18
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_dark)
+            love.graphics.print(desc, rx, ry)
+            ry = ry + 16
+            love.graphics.setColor(theme.ink_muted)
+            love.graphics.print(examples, rx, ry)
+            ry = ry + 24
+        end
+
+        draw_locus_block("ХРОМОСОМА 1 (CH1): АКРОСОМА", "Отвечает за ферменты гидролиза и растворение оболочки.", "Аллели: ACR_NORM, ACR_HYPER (+сила), ACR_DEFECT")
+        draw_locus_block("ХРОМОСОМА 2 (CH2): МИТОХОНДРИИ", "Генерация энергии АТФ и выносливость клетки.", "Аллели: MITO_NORM, MITO_HIGH (+АТФ), MITO_BURST (форсаж)")
+        draw_locus_block("ХРОМОСОМА 3 (CH3): АКСОНЕМА ЖГУТИКА", "Определяет частоту биения (Гц) и подвижность.", "Аллели: FLA_NORM, FLA_TWIN (+удвоение), FLA_STIFF")
+        draw_locus_block("ХРОМОСОМА 4 (CH4): ЛИПИДНАЯ МЕМБРАНА", "Защита от кислотности влагалища и крио-стойкость.", "Аллели: MEM_DENSE (холестерин), MEM_CHEMO, MEM_FLUID")
+        draw_locus_block("ТЕРАТОЗООСПЕРМИЯ (ИНБРИДНЫЕ МУТАЦИИ)", "При высоком инбридинге рождаются фрики:", "freak_two_headed (Двуглавый), freak_corkscrew (Штопор)")
+
+    -- ==================== ВКЛАДКА 2: СПРАВОЧНИК РЕПРОДУКТОЛОГА (ЗАЧЕМ ЗИГОТЫ) ====================
+    elseif modals.journal_tab == 2 then
+        -- ЛЕВАЯ СТРАНИЦА: Зачем нужны Зиготы и Грейды Гарднера
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("ГАМЕТЫ И ЗИГОТЫ", lx, ly)
+
+        ly = ly + 36
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.stamp_green)
+        love.graphics.print("Зачем клинике выводить Зиготы?", lx, ly)
+
+        ly = ly + 20
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(theme.ink_dark)
-        love.graphics.print(desc, rx, ry)
-        ry = ry + 16
-        love.graphics.setColor(theme.ink_muted)
-        love.graphics.print(examples, rx, ry)
-        ry = ry + 24
-    end
+        love.graphics.printf("Гаметы (сперматозоид ♂ и ооцит ♀) несут половинный набор хромосом (1n). Пациенты ЭКО-клиники заказывают не исходные клетки, а жизнеспособные ДИПЛОИДНЫЕ ЭМБРИОНЫ (ЗИГОТЫ 2n) для подсадки!\n\nЗигота объединяет лучшие отцовские и материнские аллели. Именно за готовые здоровые эмбрионы клиенты платят гонорары.", lx, ly, pw - 40, "left")
 
-    draw_locus_block("ХРОМОСОМА 1 (CH1): АКРОСОМА", "Отвечает за ферменты гидролиза и растворение оболочки.", "Аллели: ACR_NORM, ACR_HYPER (+сила), ACR_DEFECT")
-    draw_locus_block("ХРОМОСОМА 2 (CH2): МИТОХОНДРИИ", "Генерация энергии АТФ и выносливость клетки.", "Аллели: MITO_NORM, MITO_HIGH (+АТФ), MITO_BURST (форсаж)")
-    draw_locus_block("ХРОМОСОМА 3 (CH3): АКСОНЕМА ЖГУТИКА", "Определяет частоту биения (Гц) и подвижность.", "Аллели: FLA_NORM, FLA_TWIN (+удвоение), FLA_STIFF")
-    draw_locus_block("ХРОМОСОМА 4 (CH4): ЛИПИДНАЯ МЕМБРАНА", "Защита от кислотности влагалища и крио-стойкость.", "Аллели: MEM_DENSE (холестерин), MEM_CHEMO, MEM_FLUID")
-    draw_locus_block("ТЕРАТОЗООСПЕРМИЯ (ИНБРИДНЫЕ МУТАЦИИ)", "При высоком инбридинге рождаются фрики:", "freak_two_headed (Двуглавый), freak_corkscrew (Штопор)")
+        ly = ly + 120
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.amber_vial)
+        love.graphics.print("Классификация бластоцист по Гарднеру:", lx, ly)
+
+        ly = ly + 22
+        local function draw_gardner_item(grade, quality, desc)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.clipboard_wood)
+            love.graphics.print(grade .. " — " .. quality, lx, ly)
+            ly = ly + 16
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_muted)
+            love.graphics.print(desc, lx, ly)
+            ly = ly + 22
+        end
+
+        draw_gardner_item("Грейд 4AA", "Идеальный эмбрион (Премиум)", "Высший шанс имплантации. Бонус +20% к выплате заказа!")
+        draw_gardner_item("Грейд 3AB / 2BB", "Хорошая жизнеспособность", "Стандартная клиническая норма. Полная выплата ТЗ.")
+        draw_gardner_item("Грейд 1CC", "Слабый эмбрион (Фрагментация)", "Высокий риск отторжения. Штраф репутации при браке.")
+
+        -- ПРАВАЯ СТРАНИЦА: Методика ИКСИ и Критерии Крюгера
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("МЕТОДИКА ИКСИ", rx, ry)
+
+        ry = ry + 36
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.clipboard_wood)
+        love.graphics.print("Интрацитоплазматическая инъекция спермия:", rx, ry)
+
+        ry = ry + 20
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.printf("1. Перетащите карточку сперматозоида ♂ на ооцит ♀ в чашку Петри.\n2. Микроигла ИКСИ удерживает клетку и вводит ядро внутрь.\n3. Точный прокол оболочки вдали от полярного тельца на 12 часов гарантирует высший грейд 4AA!", rx, ry, pw - 40, "left")
+
+        ry = ry + 95
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.amber_vial)
+        love.graphics.print("Строгие критерии нормы ВОЗ (Шкала Крюгера):", rx, ry)
+
+        ry = ry + 22
+        local function draw_who_param(param_title, param_norm, param_hint)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.ink_dark)
+            love.graphics.print(param_title .. " [Норма: " .. param_norm .. "]", rx, ry)
+            ry = ry + 16
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_muted)
+            love.graphics.print(param_hint, rx, ry)
+            ry = ry + 22
+        end
+
+        draw_who_param("Морфология по Крюгеру", ">= 85%", "Процент идеальных форм без искривлений шейки.")
+        draw_who_param("Фрагментация ДНК (TUNEL)", "< 15%", "Разрывы спирали ДНК. Снижается пьезо-инжектором.")
+        draw_who_param("Акросомный гидролиз", ">= 14 ед.", "Активность акрозина для растворения пеллюциды.")
+        draw_who_param("Частота жгутика", ">= 35 Гц", "Мотильность для преодоления вязкой цервикальной слизи.")
+
+    -- ==================== ВКЛАДКА 3: ОБОРУДОВАНИЕ И МОДЕРНИЗАЦИЯ ====================
+    elseif modals.journal_tab == 3 then
+        -- ЛЕВАЯ СТРАНИЦА: Уровни Микроскопов
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("УРОВНИ МИКРОСКОПОВ", lx, ly)
+
+        ly = ly + 36
+        local function draw_micro_tier(tier_num, title, zoom_str, reveals_str)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.clipboard_wood)
+            love.graphics.print(string.format("УРОВЕНЬ %d: %s (%s)", tier_num, title, zoom_str), lx, ly)
+            ly = ly + 18
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_dark)
+            love.graphics.printf(reveals_str, lx, ly, pw - 40, "left")
+            ly = ly + 46
+        end
+
+        draw_micro_tier(1, "Световая лупа / Оптика", "x100", "Базовый осмотр гамет: виден пол (♂/♀), класс особи, плавающая форма и базовая частота биения жгутика (Гц).")
+        draw_micro_tier(2, "Фазово-контрастный Olympus", "x400", "Раскрывает клеточную физиологию: активность акрозина, барьер мембраны, морфологию по Крюгеру (%) и фрагментацию ДНК по TUNEL.")
+        draw_micro_tier(3, "FISH-флуоресцентный Zeiss", "x1000", "Молекулярный кариотип: полная формула всех 4 хромосом (CH1-CH4), аллели, скрытые рецессивные мутации и точная шкала соответствия ТЗ.")
+
+        -- ПРАВАЯ СТРАНИЦА: Инструменты верстака
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(theme.ink_dark)
+        love.graphics.print("ИНСТРУМЕНТЫ ВЕРСТАКА", rx, ry)
+
+        ry = ry + 36
+        local function draw_tool_guide(tool_name, desc_str)
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.amber_vial)
+            love.graphics.print(tool_name, rx, ry)
+            ry = ry + 18
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_dark)
+            love.graphics.printf(desc_str, rx, ry, pw - 40, "left")
+            ry = ry + 50
+        end
+
+        draw_tool_guide("ЛАЗЕРНЫЙ ХЕТЧЕР ZILOS", "Устанавливается на верстак. Лазерный импульс истончает zona pellucida, повышая нормальность ооцита/зиготы на +15% к Крюгеру.")
+        draw_tool_guide("КРИО-ХОЛОДИЛЬНИК (-196°C)", "Консервация гамет в жидком азоте. Дропните любую клетку со стола в холодильник, чтобы освободить рабочее пространство.")
+        draw_tool_guide("ЦЕНТРИФУГА ЦЛМН-40", "Очистка архивных ампул советского био-утиля со свалки. Разделяет фракции спермы и спасает легендарные мутации прошлого.")
+    end
 end
 
 -- ==================== 3. КАТАЛОГ ОБОРУДОВАНИЯ (МАГАЗИН) ====================
 function modals.draw_shop()
-    local x = 200
-    local y = 70
-    local w = 880
-    local h = 580
+    local x = 160
+    local y = 50
+    local w = 960
+    local h = 620
 
     love.graphics.setColor(theme.clipboard_wood)
     love.graphics.rectangle("fill", x, y, w, h, 10, 10)
@@ -290,44 +432,50 @@ function modals.draw_shop()
 
     love.graphics.setFont(fonts.title)
     love.graphics.setColor(theme.lamp_warm)
-    love.graphics.print("КАТАЛОГ МЕДИЦИНСКОГО ОБОРУДОВАНИЯ", x + 30, y + 20)
+    love.graphics.print("КАТАЛОГ МЕДИЦИНСКОГО ОБОРУДОВАНИЯ", x + 30, y + 16)
 
-    theme.draw_button("ЗАКРЫТЬ [Esc]", x + w - 160, y + 16, 130, 34, false, "secondary")
+    theme.draw_button("ЗАКРЫТЬ [Esc]", x + w - 160, y + 14, 130, 32, false, "secondary")
+
+    local cur_micro_tier = (session.data and session.data.upgrades and session.data.upgrades.microscope_tier) or 1
+    local cur_cent_tier = (session.data and session.data.upgrades and session.data.upgrades.centrifuge_tier) or 1
 
     -- Товары каталога
     local items = {
-        { id = "centrifuge", name = "Промышленная центрифуга ЦЛМН-40", desc = "Уже установлена в вашей лаборатории. Очищает архивные ампулы со свалки.", price = "УСТАНОВЛЕНО", bought = true },
+        { id = "micro_2", name = "Фазово-контрастный микроскоп Olympus (x400)", desc = "Уровень 2. Открывает цитологию: силу акрозина, мембрану, строгую морфологию по Крюгеру (%) и фрагментацию ДНК (%).", price = "350 ₽", cost = 350, bought = (cur_micro_tier >= 2) },
+        { id = "micro_3", name = "Спектральный FISH-микроскоп Zeiss (x1000)", desc = "Уровень 3. Открывает молекулярный кариотип: формулы всех 4 хромосом (CH1-CH4), аллели и скрытые мутации.", price = "650 ₽", cost = 650, bought = (cur_micro_tier >= 3) },
         { id = "laser_hatching", name = "Лазерный хетчинг-модуль Zilos", desc = "Устанавливается на верстак! Истончает блестящую оболочку ооцита и повышает жизнеспособность эмбриона (+15% к Крюгеру).", price = "450 ₽", cost = 450, bought = session.data.upgrades.laser_hatching },
-        { id = "micro_injector", name = "Пьезо-манипулятор ИКСИ Prime", desc = "Сверхточная микроигла. Автоматически снижает фрагментацию ДНК всех рождающихся зигот на 5%.", price = "320 ₽", cost = 320, bought = session.data.upgrades.micro_injector },
-        { id = "cryo_vault", name = "Крио-сосуд Дьюара LN2 Expansion", desc = "Улучшает крио-холодильник на верстаке. Снижает клеточный стресс при разморозке образцов.", price = "280 ₽", cost = 280, bought = session.data.upgrades.cryo_vault }
+        { id = "micro_injector", name = "Пьезо-манипулятор ИКСИ Prime", desc = "Сверхточная микроигла. Автоматически снижает фрагментацию ДНК всех рождающихся зигот на -5%.", price = "320 ₽", cost = 320, bought = session.data.upgrades.micro_injector },
+        { id = "centrifuge_2", name = "Градиент плотности Перколла для центрифуги", desc = "Улучшает центрифугу: позволяет отсеивать мертвые фракции и повышает шанс восстановления редких генов со свалки.", price = "260 ₽", cost = 260, bought = (cur_cent_tier >= 2) },
+        { id = "cryo_vault", name = "Крио-резервуар Дьюара LN2 Expansion", desc = "Улучшает крио-холодильник на верстаке. Снижает клеточный стресс при заморозке и разморозке образцов.", price = "280 ₽", cost = 280, bought = session.data.upgrades.cryo_vault }
     }
 
-    local iy = y + 75
+    local iy = y + 60
+    local item_h = 78
     for idx, item in ipairs(items) do
         love.graphics.setColor(theme.paper_base)
-        love.graphics.rectangle("fill", x + 30, iy, w - 60, 105, 6, 6)
+        love.graphics.rectangle("fill", x + 30, iy, w - 60, item_h, 6, 6)
 
         love.graphics.setFont(fonts.bold)
         love.graphics.setColor(theme.ink_dark)
-        love.graphics.print(item.name, x + 45, iy + 14)
+        love.graphics.print(item.name, x + 40, iy + 10)
 
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(theme.ink_muted)
-        love.graphics.printf(item.desc, x + 45, iy + 40, w - 260, "left")
+        love.graphics.printf(item.desc, x + 40, iy + 30, w - 250, "left")
 
         -- Кнопка покупки
         if item.bought then
             love.graphics.setColor(0.35, 0.45, 0.4, 0.8)
-            love.graphics.rectangle("fill", x + w - 210, iy + 35, 150, 36, 4, 4)
+            love.graphics.rectangle("fill", x + w - 190, iy + 20, 140, 36, 4, 4)
             love.graphics.setFont(fonts.bold)
             love.graphics.setColor(1, 1, 1, 0.9)
-            love.graphics.printf("КУПЛЕНО", x + w - 210, iy + 44, 150, "center")
+            love.graphics.printf("УСТАНОВЛЕНО", x + w - 190, iy + 29, 140, "center")
         else
             local can_buy = (session.data and session.data.funds >= (item.cost or 999))
-            theme.draw_button(item.price, x + w - 210, iy + 35, 150, 36, false, can_buy and "amber" or "secondary")
+            theme.draw_button(item.price, x + w - 190, iy + 20, 140, 36, false, can_buy and "amber" or "secondary")
         end
 
-        iy = iy + 115
+        iy = iy + item_h + 10
     end
 end
 
@@ -424,7 +572,7 @@ function modals.mousepressed(x, y, button)
     if modals.active == "mail" and x >= 160 + 960 - 160 and x <= 160 + 960 - 30 and y >= 76 and y <= 110 then
         modals.close()
         return true
-    elseif modals.active == "journal" and x >= 140 + 1000 - 160 and x <= 140 + 1000 - 30 and y >= 15 and y <= 49 then
+    elseif modals.active == "journal" and x >= 140 + 1000 - 160 and x <= 140 + 1000 - 10 and y >= 6 and y <= 45 then
         modals.close()
         return true
     elseif modals.active == "shop" and x >= 200 + 880 - 160 and x <= 200 + 880 - 30 and y >= 86 and y <= 120 then
@@ -432,6 +580,20 @@ function modals.mousepressed(x, y, button)
         return true
     elseif modals.active == "fridge" and x >= 160 + 960 - 160 and x <= 160 + 960 - 30 and y >= 16 and y <= 50 then
         modals.close()
+        return true
+    end
+
+    -- Переключение вкладок в Журнале
+    if modals.active == "journal" then
+        local tab_w = 230
+        local tab_y = 8
+        for i = 1, 3 do
+            local tx = 140 + (i - 1) * (tab_w + 12)
+            if x >= tx and x <= tx + tab_w and y >= tab_y and y <= tab_y + 36 then
+                modals.journal_tab = i
+                return true
+            end
+        end
         return true
     end
 
@@ -512,23 +674,32 @@ function modals.mousepressed(x, y, button)
         local x_shop = 200
         local y_shop = 70
         local w_shop = 880
-        local shop_items = {
-            { key = "laser_hatching", cost = 450, idx = 1 },
-            { key = "micro_injector", cost = 320, idx = 2 },
-            { key = "cryo_vault",     cost = 280, idx = 3 }
+        local cur_micro_tier = (session.data and session.data.upgrades and session.data.upgrades.microscope_tier) or 1
+        local cur_cent_tier = (session.data and session.data.upgrades and session.data.upgrades.centrifuge_tier) or 1
+
+        local items = {
+            { id = "micro_2", cost = 350, bought = (cur_micro_tier >= 2), apply = function() session.data.upgrades.microscope_tier = math.max(session.data.upgrades.microscope_tier or 1, 2) end },
+            { id = "micro_3", cost = 650, bought = (cur_micro_tier >= 3), apply = function() session.data.upgrades.microscope_tier = math.max(session.data.upgrades.microscope_tier or 1, 3) end },
+            { id = "laser_hatching", cost = 450, bought = session.data.upgrades.laser_hatching, apply = function() session.data.upgrades.laser_hatching = true end },
+            { id = "micro_injector", cost = 320, bought = session.data.upgrades.micro_injector, apply = function() session.data.upgrades.micro_injector = true end },
+            { id = "centrifuge_2", cost = 260, bought = (cur_cent_tier >= 2), apply = function() session.data.upgrades.centrifuge_tier = 2 end },
+            { id = "cryo_vault", cost = 280, bought = session.data.upgrades.cryo_vault, apply = function() session.data.upgrades.cryo_vault = true end }
         }
-        for _, it in ipairs(shop_items) do
-            local iy = y_shop + 75 + it.idx * 115
-            local bx = x_shop + w_shop - 210
-            local by = iy + 35
-            if x >= bx and x <= bx + 150 and y >= by and y <= by + 36 then
-                if not session.data.upgrades[it.key] and session.data.funds >= it.cost then
-                    session.data.funds = session.data.funds - it.cost
-                    session.data.upgrades[it.key] = true
+
+        local iy = y_shop + 60
+        local item_h = 78
+        for idx, item in ipairs(items) do
+            local bx = x_shop + w_shop - 190
+            local by = iy + 20
+            if x >= bx and x <= bx + 140 and y >= by and y <= by + 36 then
+                if not item.bought and session.data.funds >= item.cost then
+                    session.data.funds = session.data.funds - item.cost
+                    item.apply()
                     session.save()
                     return true
                 end
             end
+            iy = iy + item_h + 10
         end
     end
 

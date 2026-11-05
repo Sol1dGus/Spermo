@@ -308,7 +308,7 @@ function genetics.calculate_phenotype(specimen)
         table.insert(p.deck, "titanic_ram")
     end
 
-    -- Расчет клинических лабораторных показателей
+    -- Расчет клинических лабораторных показателей (ВОЗ 6-е издание)
     p.frequency_hz = is_oocyte and 0 or ((ch3 and ch3.frequency_hz) or 30)
     p.motility = p.frequency_hz
     p.acrosome_potency = 10 + (p.bonus_dmg * 2)
@@ -316,6 +316,18 @@ function genetics.calculate_phenotype(specimen)
     p.atp_synthesis = 1 + p.bonus_atp
     p.kruger_normality = math.max(25, 96 - (specimen.inbreeding or 0) * 0.45 - (specimen.freak_type and 20 or 0))
     p.dna_fragmentation = specimen.dna_fragmentation or math.random(5, 14)
+
+    -- Расширенная биохимия и клеточная физиология
+    p.alh_amplitude = is_oocyte and 0 or (2.4 + ((ch3 and ch3.bonus_atp or 0) * 0.6)) -- Латеральное смещение ALH (мкм)
+    p.mito_potential = -140 - (p.bonus_atp * 18) -- Потенциал мембраны митохондрий ΔΨm (мВ)
+    p.ros_stress = math.max(4, math.min(30, 10 + math.floor((specimen.inbreeding or 0) * 0.2))) -- Активные формы кислорода АФК (%)
+
+    -- Для эмбрионов: стадия развития и классификация бластоцист по Гарднеру
+    if specimen.is_embryo or is_oocyte == false and specimen.gardner_score then
+        p.gardner_score = specimen.gardner_score or (p.kruger_normality >= 90 and "4AA" or (p.kruger_normality >= 75 and "3AB" or (p.kruger_normality >= 55 and "2BB" or "1CC")))
+        specimen.gardner_score = p.gardner_score
+        p.stage = specimen.stage or "Зигота 2n (Эмбриогенез)"
+    end
 
     return p
 end

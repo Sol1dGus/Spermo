@@ -41,14 +41,22 @@ card_stack.STATIONS = {
         sub = "Положите спермий ♂ на ооцит ♀ для оплодотворения",
         x = 235, y = 75, w = 210, h = 190,
         type = "breed",
-        timer = 0, max_timer = 2.0, is_active = false
+        timer = 0, max_timer = 5.0, is_active = false,
+        needle_pos = 0.5,
+        sweet_spot_min = 0.40,
+        sweet_spot_max = 0.60,
+        puncture_status = nil
     },
     microscope = {
         id = "microscope",
         name = "ОКУЛЯР МИКРОСКОПА & ЦИТОГЕНЕТИКА",
         sub = "Положите клетку для спектрального анализа",
         x = 460, y = 75, w = 490, h = 190,
-        type = "inspect"
+        type = "inspect",
+        focus_val = 0.5,
+        target_focus = 0.55,
+        is_focused = true,
+        last_spec_id = nil
     },
     laser_hatcher = {
         id = "laser_hatcher",
@@ -71,7 +79,9 @@ card_stack.STATIONS = {
         sub = "Положите архивную ампулу со свалки для очистки",
         x = 1000, y = 435, w = 235, h = 225,
         type = "restore",
-        timer = 0, max_timer = 1.5, is_active = false
+        timer = 0, max_timer = 1.5, is_active = false,
+        rpm_mode = 2, -- 1: 1500, 2: 3000, 3: 6000 RPM (Перколл)
+        rpm_values = { 1500, 3000, 6000 }
     }
 }
 
@@ -146,11 +156,16 @@ function card_stack.update(dt)
         end
     end
 
-    -- Таймер Чашки Петри (Скрещивание)
+    -- Таймер Чашки Петри (Скрещивание / Мини-игра ИКСИ)
     local petri = card_stack.STATIONS.petri_dish
     if petri.is_active then
         petri.timer = petri.timer + dt
+        -- Осцилляция иглы микроманипулятора
+        local speed = (session.data and session.data.upgrades and session.data.upgrades.micro_injector) and 3.2 or 4.5
+        petri.needle_pos = 0.5 + 0.44 * math.sin(card_stack.time * speed)
+
         if petri.timer >= petri.max_timer then
+            petri.puncture_status = "standard"
             card_stack.complete_fertilization(petri)
         end
     end
@@ -201,7 +216,28 @@ function card_stack.check_petri_dish()
         petri.timer = 0
         petri.sperm_card = sperm_card
         petri.ovum_card = ovum_card
+        petri.puncture_status = nil
+
+        -- Если куплен пьезо-инжектор, зона идеального прокола расширяется
+        local has_piezo = session.data and session.data.upgrades and session.data.upgrades.micro_injector
+        petri.sweet_spot_min = has_piezo and 0.32 or 0.42
+        petri.sweet_spot_max = has_piezo and 0.68 or 0.58
     end
+end
+
+-- Мини-игра: игрок совершает прокол оболочки ооцита микроиглой
+function card_stack.trigger_puncture()
+    local petri = card_stack.STATIONS.petri_dish
+    if not petri.is_active then return false end
+
+    if petri.needle_pos >= petri.sweet_spot_min and petri.needle_pos <= petri.sweet_spot_max then
+        petri.puncture_status = "perfect"
+    else
+        petri.puncture_status = "standard"
+    end
+
+    card_stack.complete_fertilization(petri)
+    return true
 end
 
 -- Завершение оплодотворения ИКСИ (рождение зиготы)
@@ -232,6 +268,16 @@ function card_stack.complete_fertilization(petri)
     -- Вызываем session.perform_icsi
     local embryo = session.perform_icsi(sperm, ovum)
     if not embryo then return end
+
+    -- Бонус за идеальный прокол в мини-игре ИКСИ
+    if petri.puncture_status == "perfect" then
+        embryo.gardner_score = "4AA"
+        embryo.dna_fragmentation = math.max(1, (embryo.dna_fragmentation or 8) - 4)
+        if embryo.phenotype then
+            embryo.phenotype.gardner_score = "4AA"
+            embryo.phenotype.kruger_normality = math.min(100, (embryo.phenotype.kruger_normality or 90) + 8)
+        end
+    end
 
     -- Если куплен микро-инжектор, снижаем фрагментацию ДНК
     if session.data.upgrades and session.data.upgrades.micro_injector then
@@ -385,12 +431,12 @@ function card_stack.draw_stations()
     love.graphics.setColor(theme.ink_faint)
     love.graphics.printf("Дроп: убрать со стола\nКлик: открыть полку", f.x + 6, f.y + 132, f.w - 12, "center")
 
-    -- СТАНЦИЯ 2: ЧАШКА ПЕТРИ
+    -- СТАНЦИЯ 2: ЧАШКА ПЕТРИ (ЭКО / ИКСИ МИКРОХИРУРГИЯ)
     local p = card_stack.STATIONS.petri_dish
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.ellipse("fill", p.x + p.w/2 + 4, p.y + p.h/2 + 5, p.w/2 + 6, p.h/2 + 6)
 
-    love.graphics.setColor(0.12, 0.22, 0.24, 0.75)
+    love.graphics.setColor(0.10, 0.18, 0.20, 0.85)
     love.graphics.ellipse("fill", p.x + p.w/2, p.y + p.h/2, p.w/2, p.h/2)
     love.graphics.setColor(theme.cell_glow)
     love.graphics.setLineWidth(2)
@@ -398,38 +444,84 @@ function card_stack.draw_stations()
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(theme.paper_base)
-    love.graphics.printf(p.name, p.x, p.y + 12, p.w, "center")
+    love.graphics.printf(p.name, p.x, p.y + 10, p.w, "center")
 
     if p.is_active then
-        local prog = p.timer / p.max_timer
-        love.graphics.setColor(theme.lamp_warm)
-        love.graphics.setLineWidth(4)
-        love.graphics.arc("line", p.x + p.w/2, p.y + p.h/2, 50, -math.pi/2, -math.pi/2 + prog * math.pi * 2)
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(theme.lamp_warm)
-        love.graphics.printf("СЛИЯНИЕ ГЕНОМОВ...", p.x, p.y + p.h/2 - 8, p.w, "center")
+        -- Мини-игра ИКСИ: яйцеклетка в центре и микроигла
+        local egg_cx = p.x + p.w/2
+        local egg_cy = p.y + p.h/2 - 14
+
+        -- Оболочка ооцита (Zona pellucida)
+        love.graphics.setColor(0.85, 0.35, 0.65, 0.30)
+        love.graphics.circle("fill", egg_cx, egg_cy, 36)
+        love.graphics.setColor(0.95, 0.45, 0.75, 0.85)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", egg_cx, egg_cy, 36)
+
+        -- Ядро ооцита
+        love.graphics.setColor(1, 0.8, 0.9, 0.7)
+        love.graphics.circle("fill", egg_cx + 4, egg_cy - 2, 12)
+
+        -- Игла микроманипулятора ИКСИ
+        local needle_tip_x = p.x + 20 + (p.needle_pos or 0.5) * (p.w - 40)
+        local has_piezo = session.data and session.data.upgrades and session.data.upgrades.micro_injector
+        love.graphics.setColor(has_piezo and {1.0, 0.85, 0.25, 1.0} or {0.85, 0.90, 0.95, 1.0})
+        love.graphics.setLineWidth(3)
+        love.graphics.line(p.x + 8, egg_cy, needle_tip_x, egg_cy)
+        love.graphics.circle("fill", needle_tip_x, egg_cy, 4)
+
+        -- Шкала прицеливания прокола (Sweet Spot)
+        local bar_x = p.x + 22
+        local bar_y = p.y + p.h - 52
+        local bar_w = p.w - 44
+        local bar_h = 10
+        love.graphics.setColor(0.08, 0.10, 0.12, 0.95)
+        love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 2, 2)
+
+        -- Зеленая зона идеального прокола
+        local sw_min = p.sweet_spot_min or 0.42
+        local sw_max = p.sweet_spot_max or 0.58
+        local sw_x = bar_x + sw_min * bar_w
+        local sw_w = (sw_max - sw_min) * bar_w
+        love.graphics.setColor(0.20, 0.88, 0.40, 0.85)
+        love.graphics.rectangle("fill", sw_x, bar_y, sw_w, bar_h, 2, 2)
+
+        -- Бегунок иглы
+        local cursor_x = bar_x + (p.needle_pos or 0.5) * bar_w
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle("fill", cursor_x - 2, bar_y - 2, 4, bar_h + 4, 1, 1)
+
+        -- Кнопка «ПРОКОЛ»
+        local is_sweet = ((p.needle_pos or 0.5) >= sw_min and (p.needle_pos or 0.5) <= sw_max)
+        theme.draw_button(is_sweet and "⚡ ПРОКОЛ [4AA]!" or "ПРОКОЛ [Space]", p.x + 18, p.y + p.h - 36, p.w - 36, 26, false, is_sweet and "amber" or "secondary")
     else
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(theme.ink_muted)
-        love.graphics.printf("Скрещивание:\nположите ♂ на ♀", p.x + 10, p.y + p.h/2 - 14, p.w - 20, "center")
+        love.graphics.printf("Скрещивание (ИКСИ):\nположите спермий ♂\nна яйцеклетку ♀", p.x + 10, p.y + p.h/2 - 20, p.w - 20, "center")
     end
 
     -- СТАНЦИЯ 3: ОКУЛЯР МИКРОСКОПА & ЦИТОГЕНЕТИКА
     local m = card_stack.STATIONS.microscope
+    local tier = (session.data and session.data.upgrades and session.data.upgrades.microscope_tier) or 1
+
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.rectangle("fill", m.x + 4, m.y + 5, m.w, m.h, 10, 10)
 
-    love.graphics.setColor(0.12, 0.15, 0.18, 0.95)
+    -- Цвет корпуса в зависимости от уровня микроскопа
+    local bg_col = (tier == 3) and {0.10, 0.16, 0.18, 0.98} or ((tier == 2) and {0.12, 0.14, 0.18, 0.98} or {0.14, 0.13, 0.12, 0.98})
+    local border_col = (tier == 3) and {0.30, 0.95, 0.65, 0.95} or ((tier == 2) and {0.35, 0.70, 0.85, 0.95} or theme.brass_metal)
+
+    love.graphics.setColor(bg_col)
     love.graphics.rectangle("fill", m.x, m.y, m.w, m.h, 10, 10)
-    love.graphics.setColor(theme.brass_metal)
+    love.graphics.setColor(border_col)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", m.x, m.y, m.w, m.h, 10, 10)
 
     local ocular_cx = m.x + 85
-    local ocular_cy = m.y + 98
-    local ocular_r = 58
+    local ocular_cy = m.y + 90
+    local ocular_r = 52
 
-    love.graphics.setColor(theme.brass_metal)
+    love.graphics.setColor(border_col)
     love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r + 4)
     love.graphics.setColor(0.06, 0.08, 0.10, 1.0)
     love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r)
@@ -439,65 +531,132 @@ function card_stack.draw_stations()
     if cur_spec then
         love.graphics.push()
         local avatar = require("src.ui.avatar")
-        avatar.draw(cur_spec, ocular_cx, ocular_cy, 0.72, card_stack.time)
+        if not m.is_focused then
+            -- Эффект расфокусировки
+            local wobble = math.sin(card_stack.time * 10) * 2.0
+            avatar.draw(cur_spec, ocular_cx + wobble, ocular_cy, 0.68, card_stack.time)
+            love.graphics.setColor(0.08, 0.12, 0.15, 0.65)
+            love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r - 2)
+        else
+            avatar.draw(cur_spec, ocular_cx, ocular_cy, 0.68, card_stack.time)
+        end
         love.graphics.pop()
     else
         love.graphics.setColor(0.25, 0.35, 0.4, 0.5)
         love.graphics.setLineWidth(1)
         love.graphics.line(ocular_cx - ocular_r + 10, ocular_cy, ocular_cx + ocular_r - 10, ocular_cy)
         love.graphics.line(ocular_cx, ocular_cy - ocular_r + 10, ocular_cx, ocular_cy + ocular_r - 10)
-        love.graphics.circle("line", ocular_cx, ocular_cy, 24)
+        love.graphics.circle("line", ocular_cx, ocular_cy, 20)
     end
 
-    love.graphics.setColor(1, 1, 1, 0.12)
+    -- Блик линзы
+    love.graphics.setColor(1, 1, 1, 0.10)
     love.graphics.arc("fill", ocular_cx, ocular_cy, ocular_r - 2, -math.pi * 0.8, -math.pi * 0.2)
 
-    local rx = m.x + 160
-    local ry = m.y + 12
-    local rw = m.w - 170
+    -- Мини-игра: Макрометрический винт фокусировки под окуляром
+    local knob_y = m.y + m.h - 30
+    theme.draw_button("◄", ocular_cx - 52, knob_y, 26, 20, false, "secondary")
+    theme.draw_button("►", ocular_cx + 26, knob_y, 26, 20, false, "secondary")
 
+    local is_foc = m.is_focused
+    love.graphics.setColor(is_foc and theme.stamp_green or theme.amber_vial)
+    love.graphics.rectangle("fill", ocular_cx - 22, knob_y + 2, 44, 16, 2, 2)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(0.1, 0.08, 0.05, 1)
+    love.graphics.printf(is_foc and "ФОКУС" or "МУТНО", ocular_cx - 22, knob_y + 3, 44, "center")
+
+    local rx = m.x + 155
+    local ry = m.y + 10
+    local rw = m.w - 165
+
+    -- Заголовок в зависимости от тира
+    local header_title = (tier == 3) and "ZEISS AXIO • FISH КАРИОТИП (x1000)" or ((tier == 2) and "OLYMPUS BX53 • ФАЗОВЫЙ КОНТРАСТ (x400)" or "ЛУПА И БАЗОВАЯ ОПТИКА (x100)")
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(theme.brass_metal)
-    love.graphics.print("СПЕКТРАЛЬНЫЙ АНАЛИЗ ГЕНОМА", rx, ry)
+    love.graphics.setColor(border_col)
+    love.graphics.print(header_title, rx, ry)
 
     if cur_spec then
-        local p = cur_spec.phenotype or genetics.calculate_phenotype(cur_spec)
-        local is_oocyte = (cur_spec.unit_type == "oocyte")
+        if not m.is_focused then
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.amber_vial)
+            love.graphics.print("НЕТ ФОКУСА: ОБРАЗЕЦ РАЗМЫТ", rx, ry + 24)
 
-        love.graphics.setFont(fonts.bold)
-        love.graphics.setColor(theme.lamp_warm)
-        love.graphics.print(cur_spec.name, rx, ry + 22)
+            love.graphics.setFont(fonts.regular)
+            love.graphics.setColor(theme.paper_base)
+            love.graphics.printf("Вращайте макрометрический винт кнопками [◄] и [►] под окуляром, чтобы поймать фокус линзы!", rx, ry + 52, rw - 15, "left")
 
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(theme.paper_base)
-        if not is_oocyte then
-            love.graphics.print("Частота жгутика: " .. (p.frequency_hz or 30) .. " Гц  |  Акросома: " .. (p.acrosome_potency or 10) .. " ед.", rx, ry + 46)
-            love.graphics.print("Морфология по Крюгеру: " .. math.floor(p.kruger_normality or 95) .. "%  |  ДНК фрагм: " .. (cur_spec.dna_fragmentation or 8) .. "%", rx, ry + 66)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.ink_muted)
+            local diff = math.abs((m.focus_val or 0.5) - (m.target_focus or 0.55))
+            love.graphics.print("Индикатор расхождения: " .. (diff > 0.25 and "Сильное размытие..." or "Почти в фокусе!"), rx, ry + 120)
         else
-            love.graphics.print("Холестериновый барьер: " .. (p.membrane_barrier or 10) .. " мкм", rx, ry + 46)
-            love.graphics.print("Морфология по Крюгеру: " .. math.floor(p.kruger_normality or 95) .. "%  |  ДНК фрагм: " .. (cur_spec.dna_fragmentation or 8) .. "%", rx, ry + 66)
-        end
+            local p = cur_spec.phenotype or genetics.calculate_phenotype(cur_spec)
+            local is_oocyte = (cur_spec.unit_type == "oocyte")
 
-        local ch = cur_spec.chromosomes or {}
-        local kt_str = string.format("[%s] [%s] [%s] [%s]", ch.ch1 or "NORM", ch.ch2 or "NORM", ch.ch3 or "NORM", ch.ch4 or "NORM")
-        love.graphics.setColor(theme.cell_glow)
-        love.graphics.print("Кариотип: " .. kt_str, rx, ry + 88)
+            -- УРОВЕНЬ 1 (x100): Базовые параметры
+            love.graphics.setFont(fonts.bold)
+            love.graphics.setColor(theme.lamp_warm)
+            love.graphics.print(cur_spec.name .. " (Пок. " .. (cur_spec.generation or 1) .. ")", rx, ry + 20)
 
-        local cur_order = session.data.active_orders and session.data.active_orders[session.data.selected_order_idx or 1]
-        if cur_order and cur_order.requirements then
-            local match_pct = genetics.evaluate_compliance(cur_spec, cur_order.requirements)
-            match_pct = match_pct or 0
-            love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
-            love.graphics.print("ТЗ («" .. cur_order.client_name .. "»): " .. match_pct .. "% соответствия", rx, ry + 112)
-            love.graphics.setColor(0.1, 0.1, 0.1, 0.8)
-            love.graphics.rectangle("fill", rx, ry + 132, rw - 15, 8, 2, 2)
-            love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
-            love.graphics.rectangle("fill", rx, ry + 132, math.floor((rw - 15) * (match_pct / 100)), 8, 2, 2)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(theme.paper_base)
+            if not is_oocyte then
+                love.graphics.print(string.format("Частота жгутика: %d Гц  |  ALH амплитуда: %.1f мкм  |  Инбридинг: %d%%", p.frequency_hz or 30, p.alh_amplitude or 2.4, cur_spec.inbreeding or 0), rx, ry + 40)
+            else
+                love.graphics.print(string.format("Ооцит ♀  |  Диаметр: 120 мкм  |  Инбридинг: %d%%", cur_spec.inbreeding or 0), rx, ry + 40)
+            end
+
+            -- УРОВЕНЬ 2 (x400): Цитология, морфология, Гарднер
+            if tier >= 2 then
+                local morph_str = string.format("Крюгер: %d%%  |  Акросома: %d ед.  |  ДНК фрагм: %d%%  |  АФК стресс: %d%%", math.floor(p.kruger_normality or 95), p.acrosome_potency or 10, cur_spec.dna_fragmentation or 8, p.ros_stress or 10)
+                if is_oocyte then
+                    morph_str = string.format("Крюгер: %d%%  |  Барьер: %d мкм  |  ДНК фрагм: %d%%  |  АФК: %d%%", math.floor(p.kruger_normality or 95), p.membrane_barrier or 10, cur_spec.dna_fragmentation or 8, p.ros_stress or 10)
+                end
+                love.graphics.setColor(0.55, 0.90, 1.0, 1)
+                love.graphics.print(morph_str, rx, ry + 60)
+
+                if cur_spec.is_embryo and p.gardner_score then
+                    love.graphics.setColor(theme.amber_vial)
+                    love.graphics.print("Бластоциста Гарднера: " .. p.gardner_score .. " (" .. (p.stage or "Зигота 2n") .. ")", rx, ry + 78)
+                end
+            else
+                love.graphics.setColor(0.5, 0.5, 0.55, 0.9)
+                love.graphics.print("[🔒 ЦИТОЛОГИЯ x400: Купите микроскоп ур. 2 (350 ₽) в Магазине]", rx, ry + 60)
+            end
+
+            -- УРОВЕНЬ 3 (x1000): FISH Спектральный кариотип
+            local y_kt = (cur_spec.is_embryo and tier >= 2) and (ry + 96) or (ry + 80)
+            if tier >= 3 then
+                local ch = cur_spec.chromosomes or {}
+                local kt_str = string.format("CH1: [%s]  CH2: [%s]  CH3: [%s]  CH4: [%s]", ch.ch1 or "NORM", ch.ch2 or "NORM", ch.ch3 or "NORM", ch.ch4 or "NORM")
+                love.graphics.setColor(0.40, 1.0, 0.60, 1)
+                love.graphics.print("Кариотип: " .. kt_str, rx, y_kt)
+            else
+                love.graphics.setColor(0.45, 0.45, 0.5, 0.8)
+                love.graphics.print("[🔒 КАРИОТИП CH1-CH4: Требуется FISH-микроскоп Zeiss ур. 3]", rx, y_kt)
+            end
+
+            -- Соответствие текущему заказу
+            local cur_order = session.data.active_orders and session.data.active_orders[session.data.selected_order_idx or 1]
+            if cur_order and cur_order.requirements then
+                local match_pct = genetics.evaluate_compliance(cur_spec, cur_order.requirements) or 0
+                local bar_y = ry + 128
+                love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
+                if tier >= 2 then
+                    love.graphics.print("ТЗ («" .. cur_order.client_name .. "»): " .. match_pct .. "% соответствия", rx, bar_y - 17)
+                else
+                    love.graphics.print("ТЗ («" .. cur_order.client_name .. "»): ~" .. (match_pct > 50 and 65 or 35) .. "% (нужен микроскоп x400)", rx, bar_y - 17)
+                end
+                love.graphics.setColor(0.1, 0.1, 0.1, 0.8)
+                love.graphics.rectangle("fill", rx, bar_y, rw - 15, 8, 2, 2)
+                love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
+                love.graphics.rectangle("fill", rx, bar_y, math.floor((rw - 15) * (match_pct / 100)), 8, 2, 2)
+            end
         end
     else
         love.graphics.setFont(fonts.regular)
         love.graphics.setColor(theme.ink_muted)
-        love.graphics.printf("ПОЛОЖИТЕ КАРТУ В МИКРОСКОП\n\nБросьте сюда карточку клетки для полной расшифровки скрытых характеристик, частоты биения жгутика, акросомы и локусов.", rx, ry + 45, rw - 15, "left")
+        love.graphics.printf("ПОЛОЖИТЕ КАРТУ В МИКРОСКОП\n\nБросьте сюда карточку клетки для исследования цитологии, частоты биения жгутика, акросомы и локусов кариотипа.", rx, ry + 42, rw - 15, "left")
     end
 
     -- СТАНЦИЯ 4: ЛАЗЕРНЫЙ ХЕТЧЕР
@@ -623,31 +782,52 @@ function card_stack.draw_stations()
 
     -- СТАНЦИЯ 6: ЦЕНТРИФУГА
     local c = card_stack.STATIONS.centrifuge
+    local cent_tier = (session.data and session.data.upgrades and session.data.upgrades.centrifuge_tier) or 1
+
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.circle("fill", c.x + c.w/2 + 4, c.y + c.h/2 + 5, c.w/2 - 5)
 
-    love.graphics.setColor(0.18, 0.16, 0.14, 0.95)
+    love.graphics.setColor(0.16, 0.15, 0.14, 0.95)
     love.graphics.circle("fill", c.x + c.w/2, c.y + c.h/2, c.w/2 - 5)
-    love.graphics.setColor(theme.amber_vial)
+    love.graphics.setColor(cent_tier >= 2 and theme.cell_glow or theme.amber_vial)
     love.graphics.setLineWidth(2)
     love.graphics.circle("line", c.x + c.w/2, c.y + c.h/2, c.w/2 - 5)
 
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(theme.amber_vial)
-    love.graphics.printf(c.name, c.x, c.y + 16, c.w, "center")
+    love.graphics.setColor(cent_tier >= 2 and theme.cell_glow or theme.amber_vial)
+    local cent_name = (cent_tier >= 2) and "ЦЕНТРИФУГА (ПЕРКОЛЛ)" or c.name
+    love.graphics.printf(cent_name, c.x, c.y + 14, c.w, "center")
 
     if c.is_active then
         local prog = c.timer / c.max_timer
-        love.graphics.setColor(theme.lamp_warm)
+        local rot_speed = (c.rpm_mode == 3 and 16 or (c.rpm_mode == 2 and 10 or 6))
+        local rot_angle = card_stack.time * rot_speed
+        love.graphics.setColor(cent_tier >= 2 and theme.cell_glow or theme.lamp_warm)
         love.graphics.setLineWidth(4)
-        love.graphics.arc("line", c.x + c.w/2, c.y + c.h/2, 40, -math.pi/2, -math.pi/2 + prog * math.pi * 2)
+        love.graphics.arc("line", c.x + c.w/2, c.y + c.h/2 - 10, 42, -math.pi/2, -math.pi/2 + prog * math.pi * 2)
+
+        -- Вращающиеся пробирки внутри ротора
+        for a = 0, 3 do
+            local ang = rot_angle + a * (math.pi / 2)
+            local tx = c.x + c.w/2 + math.cos(ang) * 26
+            local ty = c.y + c.h/2 - 10 + math.sin(ang) * 26
+            love.graphics.setColor(theme.amber_vial)
+            love.graphics.circle("fill", tx, ty, 5)
+        end
+
         love.graphics.setFont(fonts.bold)
-        love.graphics.printf("ОЧИСТКА ДНК...", c.x, c.y + c.h/2 - 8, c.w, "center")
+        love.graphics.setColor(theme.lamp_warm)
+        love.graphics.printf("СЕДИМЕНТАЦИЯ...", c.x, c.y + c.h/2 - 18, c.w, "center")
     else
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(theme.ink_muted)
-        love.graphics.printf("Положите ампулу\nутиля со свалки", c.x + 10, c.y + c.h/2 - 12, c.w - 20, "center")
+        love.graphics.printf("Положите ампулу\nутиля со свалки", c.x + 10, c.y + c.h/2 - 24, c.w - 20, "center")
     end
+
+    -- Кнопка переключения скорости RPM
+    local cur_rpm = c.rpm_values[c.rpm_mode or 2] or 3000
+    local rpm_label = "⚙ СКОРОСТЬ: " .. cur_rpm .. " RPM"
+    theme.draw_button(rpm_label, c.x + 22, c.y + c.h - 36, c.w - 44, 24, false, cent_tier >= 2 and "wood" or "secondary")
 end
 
 -- Отрисовка отдельной карточки Stacklands
@@ -795,6 +975,36 @@ function card_stack.mousepressed(wx, wy, button)
         return true
     end
 
+    -- Клик по кнопкам фокусировки микроскопа [◄] и [►]
+    local m = card_stack.STATIONS.microscope
+    local ocular_cx = m.x + 85
+    local knob_y = m.y + m.h - 30
+    if wx >= ocular_cx - 52 and wx <= ocular_cx - 26 and wy >= knob_y and wy <= knob_y + 20 then
+        m.focus_val = math.max(0, (m.focus_val or 0.5) - 0.08)
+        m.is_focused = (math.abs(m.focus_val - (m.target_focus or 0.55)) <= 0.10)
+        return true
+    elseif wx >= ocular_cx + 26 and wx <= ocular_cx + 52 and wy >= knob_y and wy <= knob_y + 20 then
+        m.focus_val = math.min(1, (m.focus_val or 0.5) + 0.08)
+        m.is_focused = (math.abs(m.focus_val - (m.target_focus or 0.55)) <= 0.10)
+        return true
+    end
+
+    -- Клик по чашке Петри во время мини-игры ИКСИ (Прокол оболочки)
+    local p = card_stack.STATIONS.petri_dish
+    if p.is_active and point_in_rect(wx, wy, p.x, p.y, p.w, p.h) then
+        card_stack.trigger_puncture()
+        return true
+    end
+
+    -- Клик по селектору скорости центрифуги
+    local cent = card_stack.STATIONS.centrifuge
+    if point_in_rect(wx, wy, cent.x + 22, cent.y + cent.h - 36, cent.w - 44, 24) then
+        local cent_tier = (session.data and session.data.upgrades and session.data.upgrades.centrifuge_tier) or 1
+        local max_mode = (cent_tier >= 2) and 3 or 2
+        cent.rpm_mode = ((cent.rpm_mode or 2) % max_mode) + 1
+        return true
+    end
+
     -- Клик по Крио-Холодильнику открывает полку заморозки
     local fridge = card_stack.STATIONS.cryo_fridge
     if point_in_rect(wx, wy, fridge.x, fridge.y, fridge.w, fridge.h) then
@@ -865,7 +1075,10 @@ function card_stack.mousereleased(wx, wy, button)
                     break
                 end
             end
-            return true, "Образец " .. c.specimen.name .. " установлен под микроскоп! Данные расшифрованы."
+            m.target_focus = 0.35 + math.random() * 0.4
+            m.focus_val = (m.target_focus > 0.5) and 0.15 or 0.85
+            m.is_focused = false
+            return true, "Образец " .. c.specimen.name .. " установлен под микроскоп! Наведите резкость винтом [◄] [►]."
         end
         return true
     end
@@ -914,6 +1127,15 @@ function card_stack.mousereleased(wx, wy, button)
     end
 
     return true
+end
+
+function card_stack.keypressed(key)
+    if key == "space" then
+        if card_stack.STATIONS.petri_dish.is_active then
+            return card_stack.trigger_puncture()
+        end
+    end
+    return false
 end
 
 return card_stack
