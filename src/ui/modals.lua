@@ -33,6 +33,8 @@ function modals.draw()
         modals.draw_journal()
     elseif modals.active == "shop" then
         modals.draw_shop()
+    elseif modals.active == "fridge" then
+        modals.draw_fridge()
     end
 end
 
@@ -330,6 +332,91 @@ function modals.draw_shop()
     end
 end
 
+-- ==================== 4. КРИОГЕННОЕ ХРАНИЛИЩЕ (-196°C) ====================
+function modals.draw_fridge()
+    local x = 160
+    local y = 60
+    local w = 960
+    local h = 600
+
+    -- Корпус крио-камеры
+    love.graphics.setColor(0.12, 0.16, 0.20, 0.98)
+    love.graphics.rectangle("fill", x, y, w, h, 12, 12)
+    love.graphics.setColor(0.38, 0.78, 0.95, 0.9)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, 12, 12)
+
+    -- Шапка
+    love.graphics.setFont(fonts.title)
+    love.graphics.setColor(0.55, 0.92, 1.0, 1.0)
+    love.graphics.print("КРИОГЕННОЕ ХРАНИЛИЩЕ (-196°C • ЖИДКИЙ АЗОТ)", x + 30, y + 20)
+
+    -- Кнопка закрытия
+    theme.draw_button("ЗАКРЫТЬ [Esc]", x + w - 160, y + 16, 130, 34, false, "secondary")
+
+    -- Подзаголовок
+    love.graphics.setFont(fonts.regular)
+    love.graphics.setColor(0.70, 0.82, 0.90, 1.0)
+    love.graphics.print("Полка с замороженными образцами. Освобождайте верстак и берите только нужные клетки!", x + 30, y + 54)
+
+    local archive = session.data and session.data.cryo_archive or {}
+    local active = session.data and session.data.active_specimens or {}
+
+    -- Кнопка убрать все со стола
+    if #active > 0 then
+        theme.draw_button("УБРАТЬ ВСЕ КАРТЫ В ХОЛОД", x + 30, y + 84, 260, 32, false, "secondary")
+    end
+
+    if #archive == 0 then
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(0.5, 0.65, 0.75, 0.8)
+        love.graphics.printf("В КРИО-ХРАНИЛИЩЕ ПОКА НЕТ ОБРАЗЦОВ.\n\nПеретащите ненужные карточки со стола прямо на Крио-Холодильник,\nчтобы освободить рабочее место!", x + 40, y + 240, w - 80, "center")
+    else
+        -- Сетка замороженных клеток
+        local start_gx = x + 30
+        local start_gy = y + 130
+        local card_box_w = 430
+        local card_box_h = 75
+        local cols = 2
+
+        for i, s in ipairs(archive) do
+            if i <= 10 then
+                local col = (i - 1) % cols
+                local row = math.floor((i - 1) / cols)
+                local bx = start_gx + col * (card_box_w + 30)
+                local by = start_gy + row * (card_box_h + 15)
+
+                -- Плашка замороженной пробирки
+                love.graphics.setColor(0.18, 0.24, 0.30, 0.9)
+                love.graphics.rectangle("fill", bx, by, card_box_w, card_box_h, 6, 6)
+                love.graphics.setColor(0.35, 0.70, 0.90, 0.6)
+                love.graphics.setLineWidth(1)
+                love.graphics.rectangle("line", bx, by, card_box_w, card_box_h, 6, 6)
+
+                -- Иконка крио
+                local is_female = (s.sex == "female")
+                love.graphics.setColor(is_female and {0.85, 0.45, 0.75, 1} or {0.35, 0.65, 0.95, 1})
+                love.graphics.rectangle("fill", bx + 8, by + 8, 38, card_box_h - 16, 4, 4)
+                love.graphics.setFont(fonts.bold)
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.printf(is_female and "♀" or "♂", bx + 8, by + 22, 38, "center")
+
+                -- Имя клетки и поколение
+                love.graphics.setFont(fonts.bold)
+                love.graphics.setColor(theme.paper_base)
+                love.graphics.print(s.name, bx + 55, by + 12)
+
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(0.55, 0.85, 1.0, 0.9)
+                love.graphics.print("Заморожено (-196°C) • Поколение: " .. (s.generation or 1), bx + 55, by + 36)
+
+                -- Кнопка «НА ВЕРСТАК»
+                theme.draw_button("НА СТОЛ", bx + card_box_w - 110, by + 18, 95, 38, false, "wood")
+            end
+        end
+    end
+end
+
 -- Обработка кликов в модальных окнах
 function modals.mousepressed(x, y, button)
     if not modals.active or button ~= 1 then return false end
@@ -343,6 +430,55 @@ function modals.mousepressed(x, y, button)
         return true
     elseif modals.active == "shop" and x >= 200 + 880 - 160 and x <= 200 + 880 - 30 and y >= 86 and y <= 120 then
         modals.close()
+        return true
+    elseif modals.active == "fridge" and x >= 160 + 960 - 160 and x <= 160 + 960 - 30 and y >= 16 and y <= 50 then
+        modals.close()
+        return true
+    end
+
+    -- В крио-хранилище: возврат образца на стол или убрать все
+    if modals.active == "fridge" then
+        local archive = session.data and session.data.cryo_archive or {}
+        local active = session.data and session.data.active_specimens or {}
+
+        -- Кнопка «Убрать все карты в холод»
+        if #active > 0 and x >= 190 and x <= 450 and y >= 144 and y <= 176 then
+            for _, s in ipairs(active) do
+                table.insert(archive, s)
+            end
+            session.data.active_specimens = {}
+            local card_stack = require("src.engine.card_stack")
+            card_stack.sync_from_session()
+            session.save()
+            return true
+        end
+
+        -- Клик по кнопке «НА СТОЛ» для отдельного образца
+        local start_gx = 160 + 30
+        local start_gy = 60 + 130
+        local card_box_w = 430
+        local card_box_h = 75
+        local cols = 2
+
+        for i, s in ipairs(archive) do
+            if i <= 10 then
+                local col = (i - 1) % cols
+                local row = math.floor((i - 1) / cols)
+                local bx = start_gx + col * (card_box_w + 30)
+                local by = start_gy + row * (card_box_h + 15)
+
+                local btn_x = bx + card_box_w - 110
+                local btn_y = by + 18
+                if x >= btn_x and x <= btn_x + 95 and y >= btn_y and y <= btn_y + 38 then
+                    table.insert(session.data.active_specimens, s)
+                    table.remove(session.data.cryo_archive, i)
+                    local card_stack = require("src.engine.card_stack")
+                    card_stack.sync_from_session()
+                    session.save()
+                    return true
+                end
+            end
+        end
         return true
     end
 

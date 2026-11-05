@@ -34,9 +34,21 @@ function state_manager.mousepressed(x, y, button)
     end
 end
 
+function state_manager.mousemoved(x, y, dx, dy)
+    if state_manager.current and state_manager.current.mousemoved then
+        state_manager.current:mousemoved(x, y, dx, dy)
+    end
+end
+
 function state_manager.mousereleased(x, y, button)
     if state_manager.current and state_manager.current.mousereleased then
         state_manager.current:mousereleased(x, y, button)
+    end
+end
+
+function state_manager.wheelmoved(x, y)
+    if state_manager.current and state_manager.current.wheelmoved then
+        state_manager.current:wheelmoved(x, y)
     end
 end
 

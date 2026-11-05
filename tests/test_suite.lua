@@ -161,6 +161,41 @@ save_to_cwd(journal_data, "screenshot_journal_modal.png")
 print("✓ Saved Journal modal preview to screenshot_journal_modal.png")
 modals.close()
 
+-- Test Fridge Modal with frozen specimens
+local card_stack = require("src.engine.card_stack")
+table.insert(session.data.cryo_archive, session.data.active_specimens[2])
+table.remove(session.data.active_specimens, 2)
+card_stack.sync_from_session()
+
+modals.open("fridge")
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+lab_state:draw()
+love.graphics.setCanvas()
+local fridge_data = canvas:newImageData()
+save_to_cwd(fridge_data, "screenshot_fridge_modal.png")
+print("✓ Saved Fridge modal preview to screenshot_fridge_modal.png")
+modals.close()
+
+-- Test Free Camera Zoom (140% Zoom)
+lab_state.camera.zoom = 1.4
+lab_state.camera.target_zoom = 1.4
+lab_state.camera.x = 80
+lab_state.camera.y = -40
+love.graphics.setCanvas(canvas)
+love.graphics.clear(0, 0, 0, 1)
+lab_state:draw()
+love.graphics.setCanvas()
+local zoomed_data = canvas:newImageData()
+save_to_cwd(zoomed_data, "screenshot_zoomed_desk.png")
+print("✓ Saved Zoomed desk preview to screenshot_zoomed_desk.png")
+
+-- Reset camera
+lab_state.camera.zoom = 1.0
+lab_state.camera.target_zoom = 1.0
+lab_state.camera.x = 0
+lab_state.camera.y = 0
+
 -- Test Cozy Menu View
 local menu_state = require("src.states.menu_state")
 menu_state:enter()

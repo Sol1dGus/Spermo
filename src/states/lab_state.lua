@@ -3,8 +3,6 @@ local fonts = require("src.ui.fonts")
 local state_manager = require("src.states.state_manager")
 local session = require("src.engine.session")
 local theme = require("src.ui.theme")
-local avatar = require("src.ui.avatar")
-local genetics = require("src.engine.genetics")
 local assets = require("src.engine.assets")
 local card_stack = require("src.engine.card_stack")
 local modals = require("src.ui.modals")
@@ -15,17 +13,54 @@ function lab_state:enter()
     end
 
     self.time = 0
-    self.status_msg = "Свободный верстак Stacklands готов. Перетаскивайте карточки клеток по столу!"
+    self.status_msg = "Верстак готов. Двигайте карточки, скролльте колёсико для зума, ПКМ/СКМ — осмотр стола."
+
+    -- Камера верстака: свободный зум и панорамирование
+    self.camera = {
+        zoom = 1.0,
+        target_zoom = 1.0,
+        x = 0,
+        y = 0,
+        target_x = 0,
+        target_y = 0,
+        is_panning = false,
+        pan_last_x = 0,
+        pan_last_y = 0
+    }
 
     -- Синхронизируем физические карточки на столе из сессии
     card_stack.sync_from_session()
     modals.close()
 end
 
+function lab_state:screen_to_world(sx, sy)
+    local cx = 640
+    local cy = 410
+    local z = self.camera.zoom
+    local wx = (sx - cx - self.camera.x) / z + cx
+    local wy = (sy - cy - self.camera.y) / z + cy
+    return wx, wy
+end
+
+function lab_state:world_to_screen(wx, wy)
+    local cx = 640
+    local cy = 410
+    local z = self.camera.zoom
+    local sx = (wx - cx) * z + cx + self.camera.x
+    local sy = (wy - cy) * z + cy + self.camera.y
+    return sx, sy
+end
+
 function lab_state:update(dt, mx, my)
     self.time = self.time + dt
     self.last_mx = mx
     self.last_my = my
+
+    -- Плавное приближение камеры и панорамирование (Lerp)
+    local lspeed = math.min(1.0, 14 * dt)
+    self.camera.zoom = self.camera.zoom + (self.camera.target_zoom - self.camera.zoom) * lspeed
+    self.camera.x = self.camera.x + (self.camera.target_x - self.camera.x) * lspeed
+    self.camera.y = self.camera.y + (self.camera.target_y - self.camera.y) * lspeed
 
     -- Если открыта модалка — карточки на столе не обновляются
     if not modals.is_open() then
@@ -44,7 +79,13 @@ function lab_state:draw()
         love.graphics.rectangle("fill", 0, 0, 1280, 720)
     end
 
-    -- 2. Свободный рабочий коврик в центре стола (Большая чистая площадка)
+    -- 2. Камера верстака: масштабирование и панорамирование стола!
+    love.graphics.push()
+    love.graphics.translate(640 + self.camera.x, 410 + self.camera.y)
+    love.graphics.scale(self.camera.zoom, self.camera.zoom)
+    love.graphics.translate(-640, -410)
+
+    -- Рабочий коврик в центре стола (Большая чистая площадка)
     local mat_x = 150
     local mat_y = 190
     local mat_w = 980
@@ -66,51 +107,24 @@ function lab_state:draw()
         love.graphics.line(mat_x + 10, gy, mat_x + mat_w - 10, gy)
     end
 
-    -- 3. Отрисовка всех станций и физических карточек на столе (Stacklands)
+    -- Отрисовка всех станций и физических карточек на столе (Stacklands)
     card_stack.draw()
 
-    -- Рендеринг клетки в слоте микроскопа (если выбрана)
-    self:draw_microscope_ocular_preview()
+    love.graphics.pop() -- Конец пространства камеры верстака
 
-    -- 4. Верхняя сервисная панель с предметами-кнопками (Почта, Журнал, Каталог, Свалка)
+    -- 3. Верхняя сервисная панель с предметами-кнопками (Почта, Журнал, Каталог, Свалка)
     self:draw_top_bar()
 
-    -- 5. Теплое освещение настольной лампы
+    -- 4. Теплое освещение настольной лампы
     self:draw_ambient_lamp_light()
 
-    -- 6. Нижняя строка статуса эмбриолога
+    -- 5. Нижняя строка статуса эмбриолога + контроллер зума
     self:draw_status_bar()
 
-    -- 7. Модальные экраны поверх всего стола (если открыты)
+    -- 6. Модальные экраны поверх всего стола (если открыты)
     if modals.is_open() then
         modals.draw()
     end
-end
-
--- Превью клетки в окуляре микроскопа
-function lab_state:draw_microscope_ocular_preview()
-    local m = card_stack.STATIONS.microscope
-    local cur_spec = session.data and session.data.active_specimens[session.data.selected_specimen_idx or 1]
-    if not cur_spec then return end
-
-    local ocular_cx = m.x + m.w / 2
-    local ocular_cy = m.y + 115
-    local ocular_r = 52
-
-    -- Латунная оправа окуляра
-    love.graphics.setColor(theme.brass_metal)
-    love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r + 4)
-    love.graphics.setColor(0.06, 0.08, 0.10, 1.0)
-    love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r)
-
-    -- Живая плавающая клетка в линзе микроскопа!
-    love.graphics.push()
-    avatar.draw(cur_spec, ocular_cx, ocular_cy, 0.7, self.time)
-    love.graphics.pop()
-
-    -- Блик линзы
-    love.graphics.setColor(1, 1, 1, 0.12)
-    love.graphics.arc("fill", ocular_cx, ocular_cy, ocular_r - 2, -math.pi * 0.8, -math.pi * 0.2)
 end
 
 -- Верхняя панель со свободным доступом к модулям
@@ -138,11 +152,18 @@ function lab_state:draw_top_bar()
     -- ПРЕДМЕТ-КНОПКА 3: КАТАЛОГ ОБОРУДОВАНИЯ (Магазин)
     theme.draw_button("МАГАЗИН", 515, 10, 145, 36, false, "wood")
 
-    -- ПРЕДМЕТ-КНОПКА 4: БИО-СВАЛКА (Барахолка)
-    theme.draw_button("БИО-СВАЛКА", 920, 10, 160, 36, false, "amber")
+    -- ПРЕДМЕТ-КНОПКА 4: ХОЛОДИЛЬНИК (Крио-камера)
+    local cryo_cnt = session.data and session.data.cryo_archive and #session.data.cryo_archive or 0
+    theme.draw_button("ХОЛОДИЛЬНИК (" .. cryo_cnt .. ")", 675, 10, 180, 36, false, "secondary")
 
-    -- ПРЕДМЕТ-КНОПКА 5: СМЕНА ДНЯ
-    theme.draw_button("СМЕНА ДНЯ", 1095, 10, 160, 36, false, "secondary")
+    -- ПРЕДМЕТ-КНОПКА 5: БИО-СВАЛКА (Барахолка)
+    theme.draw_button("БИО-СВАЛКА", 870, 10, 150, 36, false, "amber")
+
+    -- ПРЕДМЕТ-КНОПКА 6: СМЕНА ДНЯ
+    theme.draw_button("СМЕНА ДНЯ", 1035, 10, 150, 36, false, "secondary")
+
+    -- Кнопка сброса камеры
+    theme.draw_button("R", 1200, 10, 45, 36, false, "secondary")
 end
 
 function lab_state:draw_ambient_lamp_light()
@@ -161,12 +182,26 @@ function lab_state:draw_status_bar()
     love.graphics.setLineWidth(1)
     love.graphics.line(0, 680, 1280, 680)
 
+    -- Статусная подсказка
     love.graphics.setFont(fonts.regular)
     love.graphics.setColor(theme.paper_base)
     love.graphics.print("ВЕРСТАК: " .. self.status_msg, 25, 692)
+
+    -- Индикатор зума
+    local zoom_pct = math.floor(self.camera.zoom * 100)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(theme.lamp_warm)
+    love.graphics.printf(string.format("ЗУМ: %d%%  [Скролл колеса | ПКМ: Панорама | R: Сброс]", zoom_pct), 800, 692, 455, "right")
 end
 
 -- ==================== ОБРАБОТКА ВВОДА ====================
+function lab_state:wheelmoved(x, y)
+    if modals.is_open() then return end
+    -- Плавный свободный зум от 70% до 220%
+    local new_zoom = self.camera.target_zoom + y * 0.15
+    self.camera.target_zoom = math.max(0.70, math.min(2.20, new_zoom))
+end
+
 function lab_state:mousepressed(x, y, button)
     -- Если открыта модалка — клик обрабатывается внутри модалки
     if modals.is_open() then
@@ -174,9 +209,17 @@ function lab_state:mousepressed(x, y, button)
         return
     end
 
+    -- Панорамирование камеры по нажатию правой кнопки (2) или средней кнопки (3)
+    if button == 2 or button == 3 then
+        self.camera.is_panning = true
+        self.camera.pan_last_x = x
+        self.camera.pan_last_y = y
+        return
+    end
+
     if button ~= 1 then return end
 
-    -- 1. Клики по верхней панели (Предметы-модули)
+    -- 1. Клики по верхней фиксированной панели (Экранные координаты)
     -- Почта
     if x >= 190 and x <= 345 and y >= 10 and y <= 46 then
         modals.open("mail")
@@ -192,25 +235,38 @@ function lab_state:mousepressed(x, y, button)
         modals.open("shop")
         return
     end
+    -- Холодильник
+    if x >= 675 and x <= 855 and y >= 10 and y <= 46 then
+        modals.open("fridge")
+        return
+    end
     -- Био-Свалка
-    if x >= 920 and x <= 1080 and y >= 10 and y <= 46 then
+    if x >= 870 and x <= 1020 and y >= 10 and y <= 46 then
         state_manager.switch("salvage")
         return
     end
     -- Смена Дня
-    if x >= 1095 and x <= 1255 and y >= 10 and y <= 46 then
+    if x >= 1035 and x <= 1185 and y >= 10 and y <= 46 then
         session.advance_day()
         card_stack.sync_from_session()
         self.status_msg = "Наступил день " .. session.data.day .. ". Проверьте новые письма в почте!"
         return
     end
+    -- Кнопка сброса зума
+    if x >= 1200 and x <= 1245 and y >= 10 and y <= 46 then
+        self.camera.target_zoom = 1.0
+        self.camera.target_x = 0
+        self.camera.target_y = 0
+        return
+    end
 
-    -- 2. Клики по карточкам на столе (Stacklands)
-    local handled = card_stack.mousepressed(x, y, button)
+    -- 2. Клики по карточкам и станциям на столе (Мировые координаты с учётом зума и панорамы!)
+    local wx, wy = self:screen_to_world(x, y)
+    local handled = card_stack.mousepressed(wx, wy, button)
     if handled then
         local c = card_stack.dragged_card
         if c and c.kind == "specimen" then
-            self.status_msg = "Взята карточка: " .. c.specimen.name .. ". Перетащите в чашку Петри, микроскоп или конверт!"
+            self.status_msg = "Взята карточка: " .. c.specimen.name .. ". Перетащите в чашку Петри, микроскоп, холодильник или конверт!"
         elseif c and c.kind == "vial" then
             self.status_msg = "Взята архивная ампула: " .. c.vial.origin_name .. ". Перетащите в центрифугу!"
         end
@@ -219,14 +275,33 @@ function lab_state:mousepressed(x, y, button)
 end
 
 function lab_state:mousemoved(x, y, dx, dy)
+    -- Панорамирование камеры
+    if self.camera.is_panning then
+        self.camera.target_x = self.camera.target_x + dx
+        self.camera.target_y = self.camera.target_y + dy
+        local max_pan = 500 * self.camera.zoom
+        self.camera.target_x = math.max(-max_pan, math.min(max_pan, self.camera.target_x))
+        self.camera.target_y = math.max(-max_pan, math.min(max_pan, self.camera.target_y))
+        return
+    end
+
     if not modals.is_open() then
-        card_stack.mousemoved(x, y, dx, dy)
+        local wx, wy = self:screen_to_world(x, y)
+        local wdx = dx / self.camera.zoom
+        local wdy = dy / self.camera.zoom
+        card_stack.mousemoved(wx, wy, wdx, wdy)
     end
 end
 
 function lab_state:mousereleased(x, y, button)
+    if button == 2 or button == 3 then
+        self.camera.is_panning = false
+        return
+    end
+
     if not modals.is_open() and button == 1 then
-        local ok, msg = card_stack.mousereleased(x, y, button)
+        local wx, wy = self:screen_to_world(x, y)
+        local ok, msg = card_stack.mousereleased(wx, wy, button)
         if msg then
             self.status_msg = msg
         end
@@ -242,12 +317,20 @@ function lab_state:keypressed(key)
     if key == "escape" then
         session.save()
         state_manager.switch("menu")
+    elseif key == "r" or key == "space" then
+        -- Сброс камеры
+        self.camera.target_zoom = 1.0
+        self.camera.target_x = 0
+        self.camera.target_y = 0
+        self.status_msg = "Обзор камеры центрирован."
     elseif key == "tab" or key == "1" then
         modals.open("mail")
     elseif key == "j" or key == "2" then
         modals.open("journal")
     elseif key == "s" or key == "3" then
         modals.open("shop")
+    elseif key == "c" or key == "4" then
+        modals.open("fridge")
     end
 end
 

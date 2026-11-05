@@ -19,7 +19,8 @@ end
 
 card_stack.cards = {}
 card_stack.dragged_card = nil
-card_stack.active_timer_stacks = {} -- Станции с активным таймером (оплодотворение, центрифуга)
+card_stack.active_timer_stacks = {}
+card_stack.time = 0
 
 -- Размеры стандартной карточки Stacklands
 card_stack.CARD_W = 110
@@ -27,33 +28,40 @@ card_stack.CARD_H = 150
 
 -- Станции на столе (Слоты с особыми механиками)
 card_stack.STATIONS = {
+    cryo_fridge = {
+        id = "cryo_fridge",
+        name = "КРИО-ХОЛОДИЛЬНИК",
+        sub = "Положите клетку для заморозки (-196°C)",
+        x = 175, y = 205, w = 185, h = 195,
+        type = "freeze"
+    },
     petri_dish = {
         id = "petri_dish",
         name = "ЧАШКА ПЕТРИ (ЭКО / ИКСИ)",
-        sub = "Положите сперматозоид ♂ и ооцит ♀ для оплодотворения",
-        x = 470, y = 220, w = 220, h = 180,
+        sub = "Положите спермий ♂ на ооцит ♀ для оплодотворения",
+        x = 385, y = 205, w = 220, h = 195,
         type = "breed",
         timer = 0, max_timer = 2.0, is_active = false
     },
     microscope = {
         id = "microscope",
-        name = "ОКУЛЯР МИКРОСКОПА",
-        sub = "Положите клетку для осмотра фенотипа и кариотипа",
-        x = 730, y = 220, w = 200, h = 180,
+        name = "ОКУЛЯР МИКРОСКОПА & ЦИТОГЕНЕТИКА",
+        sub = "Положите клетку для спектрального анализа",
+        x = 630, y = 205, w = 485, h = 195,
         type = "inspect"
     },
     dispatch_envelope = {
         id = "dispatch_envelope",
         name = "ПОЧТОВЫЙ КОНВЕРТ",
         sub = "Положите готовую клетку для отправки клиенту",
-        x = 180, y = 470, w = 170, h = 140,
+        x = 175, y = 430, w = 185, h = 205,
         type = "submit"
     },
     centrifuge = {
         id = "centrifuge",
         name = "ЦЕНТРИФУГА",
         sub = "Положите архивную ампулу со свалки для очистки",
-        x = 940, y = 470, w = 170, h = 140,
+        x = 945, y = 430, w = 170, h = 205,
         type = "restore",
         timer = 0, max_timer = 1.5, is_active = false
     }
@@ -66,8 +74,8 @@ function card_stack.sync_from_session()
     local vials = session.data and session.data.unrestored_vials or {}
 
     -- Раскладываем стартовые клетки на столе красивым веером на коврике
-    local start_x = 380
-    local start_y = 440
+    local start_x = 385
+    local start_y = 445
     local spacing_x = 125
 
     for idx, spec in ipairs(specimens) do
@@ -83,13 +91,14 @@ function card_stack.sync_from_session()
             h = card_stack.CARD_H,
             is_dragging = false,
             tilt = 0,
-            target_tilt = 0
+            target_tilt = 0,
+            seed = idx * 1.37
         })
     end
 
     -- Добавляем карточки списанных ампул со свалки
     for idx, vial in ipairs(vials) do
-        local vx = 180 + (idx - 1) * 35
+        local vx = 185 + (idx - 1) * 35
         local vy = 260
         table.insert(card_stack.cards, {
             id = "vial_" .. vial.id,
@@ -103,12 +112,15 @@ function card_stack.sync_from_session()
             h = card_stack.CARD_H,
             is_dragging = false,
             tilt = 0,
-            target_tilt = 0
+            target_tilt = 0,
+            seed = idx * 2.11
         })
     end
 end
 
 function card_stack.update(dt)
+    card_stack.time = card_stack.time + dt
+
     -- Плавное движение и физика наклона карточек (Lerp spring)
     for _, card in ipairs(card_stack.cards) do
         if not card.is_dragging then
@@ -179,54 +191,61 @@ function card_stack.complete_fertilization(petri)
     local ovum = petri.ovum_card and petri.ovum_card.specimen
     if not sperm or not ovum then return end
 
-    local embryo, err = session.perform_icsi(sperm, ovum)
-    if embryo then
-        -- Удаляем родительские карточки со стола
-        for i = #card_stack.cards, 1, -1 do
-            local c = card_stack.cards[i]
-            if c == petri.sperm_card or c == petri.ovum_card then
-                table.remove(card_stack.cards, i)
-            end
-        end
+    local embryo = genetics.fertilize(sperm, ovum)
+    embryo.name = "ЗИГОТА-" .. string.upper(embryo.id:sub(-4))
 
-        -- Спавним новую карточку зиготы прямо в центре чашки Петри!
-        local new_card = {
-            id = "card_" .. embryo.id,
-            kind = "specimen",
-            specimen = embryo,
-            x = petri.x + (petri.w - card_stack.CARD_W) / 2,
-            y = petri.y + (petri.h - card_stack.CARD_H) / 2,
-            target_x = petri.x + (petri.w - card_stack.CARD_W) / 2,
-            target_y = petri.y + (petri.h - card_stack.CARD_H) / 2,
-            w = card_stack.CARD_W,
-            h = card_stack.CARD_H,
-            is_dragging = false,
-            tilt = 0,
-            target_tilt = 0,
-            just_spawned = true
-        }
-        table.insert(card_stack.cards, new_card)
-        session.data.selected_specimen_idx = 1
+    -- Удаляем карты родителей со стола и из session.data
+    for i = #card_stack.cards, 1, -1 do
+        local c = card_stack.cards[i]
+        if c == petri.sperm_card or c == petri.ovum_card then
+            table.remove(card_stack.cards, i)
+        end
     end
+
+    for i = #(session.data.active_specimens or {}), 1, -1 do
+        local s = session.data.active_specimens[i]
+        if s.id == sperm.id or s.id == ovum.id then
+            table.remove(session.data.active_specimens, i)
+        end
+    end
+
+    -- Добавляем полученную зиготу в сессию
+    table.insert(session.data.active_specimens, embryo)
+    session.data.selected_specimen_idx = #session.data.active_specimens
+
+    -- Создаем карточку зиготы, появляющуюся прямо в чашке Петри
+    local new_card = {
+        id = "card_" .. embryo.id,
+        kind = "specimen",
+        specimen = embryo,
+        x = petri.x + (petri.w - card_stack.CARD_W) / 2,
+        y = petri.y + (petri.h - card_stack.CARD_H) / 2,
+        target_x = petri.x + (petri.w - card_stack.CARD_W) / 2,
+        target_y = petri.y + petri.h + 20, -- Выплывает из чашки
+        w = card_stack.CARD_W,
+        h = card_stack.CARD_H,
+        is_dragging = false,
+        tilt = 0,
+        target_tilt = 0,
+        just_spawned = true,
+        seed = math.random() * 5
+    }
+    table.insert(card_stack.cards, new_card)
+    session.save()
 end
 
--- Проверка центрифуги
+-- Запуск очистки ампулы в центрифуге
 function card_stack.check_centrifuge()
     local cent = card_stack.STATIONS.centrifuge
     if cent.is_active then return end
 
-    local vial_card = nil
     for _, c in ipairs(card_stack.cards) do
         if c.kind == "vial" and point_in_rect(c.x + c.w/2, c.y + c.h/2, cent.x, cent.y, cent.w, cent.h) then
-            vial_card = c
+            cent.is_active = true
+            cent.timer = 0
+            cent.vial_card = c
             break
         end
-    end
-
-    if vial_card then
-        cent.is_active = true
-        cent.timer = 0
-        cent.vial_card = vial_card
     end
 end
 
@@ -261,7 +280,8 @@ function card_stack.complete_centrifuge(cent)
             is_dragging = false,
             tilt = 0,
             target_tilt = 0,
-            just_spawned = true
+            just_spawned = true,
+            seed = math.random() * 5
         }
         table.insert(card_stack.cards, restored_card)
         session.data.selected_specimen_idx = 1
@@ -289,7 +309,46 @@ end
 function card_stack.draw_stations()
     local fonts = require("src.ui.fonts")
 
-    -- СТАНЦИЯ 1: ЧАШКА ПЕТРИ (Круг / Овал из термостойкого стекла)
+    -- СТАНЦИЯ 1: КРИО-ХОЛОДИЛЬНИК (Заморозка и хранилище)
+    local f = card_stack.STATIONS.cryo_fridge
+    love.graphics.setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle("fill", f.x + 4, f.y + 5, f.w, f.h, 10, 10)
+
+    -- Стальной корпус криокамеры
+    love.graphics.setColor(0.14, 0.18, 0.22, 0.95)
+    love.graphics.rectangle("fill", f.x, f.y, f.w, f.h, 10, 10)
+    love.graphics.setColor(0.35, 0.75, 0.95, 0.85) -- Ледяной морозный контур
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", f.x, f.y, f.w, f.h, 10, 10)
+
+    -- LED индикатор температуры
+    love.graphics.setColor(0.08, 0.10, 0.14, 1.0)
+    love.graphics.rectangle("fill", f.x + 12, f.y + 12, f.w - 24, 28, 4, 4)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(0.40, 0.90, 1.0, 1.0)
+    love.graphics.printf("-196°C  [LN2]", f.x + 12, f.y + 17, f.w - 24, "center")
+
+    -- Окошко с изморозью
+    love.graphics.setColor(0.10, 0.14, 0.18, 0.9)
+    love.graphics.rectangle("fill", f.x + 16, f.y + 48, f.w - 32, 72, 4, 4)
+    love.graphics.setColor(0.5, 0.85, 1.0, 0.25)
+    love.graphics.rectangle("line", f.x + 16, f.y + 48, f.w - 32, 72, 4, 4)
+
+    -- Количество законсервированных образцов
+    local stored_count = session.data and session.data.cryo_archive and #session.data.cryo_archive or 0
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.lamp_warm)
+    love.graphics.printf("ХРАНИЛИЩЕ", f.x, f.y + 58, f.w, "center")
+    love.graphics.setFont(fonts.regular)
+    love.graphics.setColor(0.85, 0.95, 1.0, 1.0)
+    love.graphics.printf(stored_count .. " клеток", f.x, f.y + 82, f.w, "center")
+
+    -- Подсказка
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(theme.ink_faint)
+    love.graphics.printf("Дроп: убрать со стола\nКлик: открыть полку", f.x + 6, f.y + 138, f.w - 12, "center")
+
+    -- СТАНЦИЯ 2: ЧАШКА ПЕТРИ (Круг / Овал из термостойкого стекла)
     local p = card_stack.STATIONS.petri_dish
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.ellipse("fill", p.x + p.w/2 + 4, p.y + p.h/2 + 5, p.w/2 + 6, p.h/2 + 6)
@@ -320,24 +379,102 @@ function card_stack.draw_stations()
         love.graphics.printf("Скрещивание: положите\nспермий ♂ на ооцит ♀", p.x + 10, p.y + p.h/2 - 14, p.w - 20, "center")
     end
 
-    -- СТАНЦИЯ 2: ОКУЛЯР МИКРОСКОПА (Слот инспектора)
+    -- СТАНЦИЯ 3: ОКУЛЯР МИКРОСКОПА & СТАНЦИЯ АНАЛИЗА
     local m = card_stack.STATIONS.microscope
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.rectangle("fill", m.x + 4, m.y + 5, m.w, m.h, 10, 10)
 
-    love.graphics.setColor(0.12, 0.15, 0.16, 0.85)
+    love.graphics.setColor(0.12, 0.15, 0.18, 0.95)
     love.graphics.rectangle("fill", m.x, m.y, m.w, m.h, 10, 10)
     love.graphics.setColor(theme.brass_metal)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", m.x, m.y, m.w, m.h, 10, 10)
 
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(theme.brass_metal)
-    love.graphics.printf(m.name, m.x, m.y + 12, m.w, "center")
-    love.graphics.setColor(theme.ink_muted)
-    love.graphics.printf("Положите карту для\nдетального анализа в линзе", m.x + 10, m.y + 55, m.w - 20, "center")
+    -- Левая часть: Латунный окуляр
+    local ocular_cx = m.x + 85
+    local ocular_cy = m.y + 100
+    local ocular_r = 58
 
-    -- СТАНЦИЯ 3: ПОЧТОВЫЙ КОНВЕРТ (Сдача заказа)
+    love.graphics.setColor(theme.brass_metal)
+    love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r + 4)
+    love.graphics.setColor(0.06, 0.08, 0.10, 1.0)
+    love.graphics.circle("fill", ocular_cx, ocular_cy, ocular_r)
+
+    local cur_spec = session.data and session.data.active_specimens[session.data.selected_specimen_idx or 1]
+
+    if cur_spec then
+        -- Анимированная живая клетка в линзе микроскопа!
+        love.graphics.push()
+        local avatar = require("src.ui.avatar")
+        avatar.draw(cur_spec, ocular_cx, ocular_cy, 0.72, card_stack.time)
+        love.graphics.pop()
+    else
+        -- Перекрестие пустого предметного стекла
+        love.graphics.setColor(0.25, 0.35, 0.4, 0.5)
+        love.graphics.setLineWidth(1)
+        love.graphics.line(ocular_cx - ocular_r + 10, ocular_cy, ocular_cx + ocular_r - 10, ocular_cy)
+        love.graphics.line(ocular_cx, ocular_cy - ocular_r + 10, ocular_cx, ocular_cy + ocular_r - 10)
+        love.graphics.circle("line", ocular_cx, ocular_cy, 24)
+    end
+
+    -- Блик стекла линзы
+    love.graphics.setColor(1, 1, 1, 0.12)
+    love.graphics.arc("fill", ocular_cx, ocular_cy, ocular_r - 2, -math.pi * 0.8, -math.pi * 0.2)
+
+    -- Правая часть: Аналитический экран цитогенетики
+    local rx = m.x + 160
+    local ry = m.y + 12
+    local rw = m.w - 170
+
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(theme.brass_metal)
+    love.graphics.print("СПЕКТРАЛЬНЫЙ АНАЛИЗ ГЕНОМА", rx, ry)
+
+    if cur_spec then
+        local p = cur_spec.phenotype or genetics.calculate_phenotype(cur_spec)
+        local is_oocyte = (cur_spec.unit_type == "oocyte")
+
+        -- Имя образца
+        love.graphics.setFont(fonts.bold)
+        love.graphics.setColor(theme.lamp_warm)
+        love.graphics.print(cur_spec.name, rx, ry + 22)
+
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(theme.paper_base)
+        if not is_oocyte then
+            love.graphics.print("Частота жгутика: " .. (p.frequency_hz or 30) .. " Гц  |  Акросома: " .. (p.acrosome_potency or 10) .. " ед.", rx, ry + 46)
+            love.graphics.print("Морфология по Крюгеру: " .. math.floor(p.kruger_normality or 95) .. "%  |  ДНК фрагм: " .. (cur_spec.dna_fragmentation or 8) .. "%", rx, ry + 66)
+        else
+            love.graphics.print("Холестериновый барьер: " .. (p.membrane_barrier or 10) .. " мкм", rx, ry + 46)
+            love.graphics.print("Морфология по Крюгеру: " .. math.floor(p.kruger_normality or 95) .. "%  |  ДНК фрагм: " .. (cur_spec.dna_fragmentation or 8) .. "%", rx, ry + 66)
+        end
+
+        -- Кариотип / аллели
+        local ch = cur_spec.chromosomes or {}
+        local kt_str = string.format("[%s] [%s] [%s] [%s]", ch.ch1 or "NORM", ch.ch2 or "NORM", ch.ch3 or "NORM", ch.ch4 or "NORM")
+        love.graphics.setColor(theme.cell_glow)
+        love.graphics.print("Кариотип: " .. kt_str, rx, ry + 88)
+
+        -- Соответствие активному заказу пациента
+        local cur_order = session.data.active_orders and session.data.active_orders[session.data.selected_order_idx or 1]
+        if cur_order and cur_order.requirements then
+            local match_pct = genetics.evaluate_compliance(cur_spec, cur_order.requirements)
+            match_pct = match_pct or 0
+            love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
+            love.graphics.print("ТЗ («" .. cur_order.client_name .. "»): " .. match_pct .. "% соответствия", rx, ry + 112)
+            -- Мини шкала
+            love.graphics.setColor(0.1, 0.1, 0.1, 0.8)
+            love.graphics.rectangle("fill", rx, ry + 132, rw - 15, 8, 2, 2)
+            love.graphics.setColor(match_pct >= 80 and theme.stamp_green or (match_pct >= 50 and theme.amber_vial or theme.stamp_red))
+            love.graphics.rectangle("fill", rx, ry + 132, math.floor((rw - 15) * (match_pct / 100)), 8, 2, 2)
+        end
+    else
+        love.graphics.setFont(fonts.regular)
+        love.graphics.setColor(theme.ink_muted)
+        love.graphics.printf("ПОЛОЖИТЕ КАРТУ В МИКРОСКОП\n\nБросьте сюда карточку клетки для полной расшифровки скрытых характеристик, частоты биения жгутика, акросомы и локусов.", rx, ry + 45, rw - 15, "left")
+    end
+
+    -- СТАНЦИЯ 4: ПОЧТОВЫЙ КОНВЕРТ (Сдача заказа)
     local d = card_stack.STATIONS.dispatch_envelope
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.rectangle("fill", d.x + 4, d.y + 4, d.w, d.h, 6, 6)
@@ -360,7 +497,7 @@ function card_stack.draw_stations()
     love.graphics.setColor(theme.ink_dark)
     love.graphics.printf("Дропните клетку\nдля сдачи клиенту", d.x + 12, d.y + 45, d.w - 24, "center")
 
-    -- СТАНЦИЯ 4: ЦЕНТРИФУГА
+    -- СТАНЦИЯ 5: ЦЕНТРИФУГА
     local c = card_stack.STATIONS.centrifuge
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.circle("fill", c.x + c.w/2 + 4, c.y + c.h/2 + 5, c.w/2 - 5)
@@ -430,12 +567,14 @@ function card_stack.draw_card(card, is_lifted)
 
         -- Окошко портрета клетки
         love.graphics.setColor(0.12, 0.15, 0.18, 0.95)
-        love.graphics.rectangle("fill", cx + 8, cy + 28, card.w - 16, 64, 4, 4)
+        love.graphics.rectangle("fill", cx + 8, cy + 28, card.w - 16, 68, 4, 4)
 
-        -- Процедурный портрет клетки
+        -- Процедурный живой портрет клетки (ПЛАВАЕТ И ШЕВЕЛИТ ХВОСТИКОМ!)
         local avatar = require("src.ui.avatar")
+        local anim_speed = card.is_dragging and 1.8 or 1.0
+        local anim_time = card_stack.time * anim_speed + (card.seed or 0)
         love.graphics.push()
-        avatar.draw(s, cx + card.w/2, cy + 60, 0.42, 0)
+        avatar.draw(s, cx + card.w/2, cy + 62, 0.44, anim_time)
         love.graphics.pop()
 
         -- Название карточки
@@ -443,20 +582,13 @@ function card_stack.draw_card(card, is_lifted)
         love.graphics.setColor(theme.ink_dark)
         local short_name = s.name:match("([^%-#]+)") or s.name
         short_name = short_name:gsub("%s+", "")
-        short_name = truncate_utf8(short_name, 8)
-        love.graphics.printf(short_name, cx + 4, cy + 95, card.w - 8, "center")
+        short_name = truncate_utf8(short_name, 9)
+        love.graphics.printf(short_name, cx + 4, cy + 102, card.w - 8, "center")
 
-        -- Характеристики
+        -- Подсказка: детальные характеристики скрыты до помещения в микроскоп!
         love.graphics.setFont(fonts.small)
-        local p = s.phenotype or genetics.calculate_phenotype(s)
         love.graphics.setColor(theme.ink_muted)
-        if not is_oocyte then
-            love.graphics.print("Частота: " .. (p.frequency_hz or 30) .. " Гц", cx + 8, cy + 114)
-            love.graphics.print("Акросома: " .. (p.acrosome_potency or 10), cx + 8, cy + 128)
-        else
-            love.graphics.print("Барьер: " .. (p.membrane_barrier or 10) .. " мкм", cx + 8, cy + 114)
-            love.graphics.print("Крюгер: " .. math.floor(p.kruger_normality or 90) .. "%", cx + 8, cy + 128)
-        end
+        love.graphics.printf("Осмотр в микроскопе", cx + 4, cy + 124, card.w - 8, "center")
 
     elseif card.kind == "vial" then
         -- Карточка списанной архивной ампулы со свалки
@@ -526,6 +658,14 @@ function card_stack.mousepressed(wx, wy, button)
         end
     end
 
+    -- Если кликнули не по карте, проверяем клик по Крио-Холодильнику для открытия полки
+    local fridge = card_stack.STATIONS.cryo_fridge
+    if point_in_rect(wx, wy, fridge.x, fridge.y, fridge.w, fridge.h) then
+        local modals = require("src.ui.modals")
+        modals.open("fridge")
+        return true
+    end
+
     return false
 end
 
@@ -554,7 +694,25 @@ function card_stack.mousereleased(wx, wy, button)
     local cx = c.x + c.w/2
     local cy = c.y + c.h/2
 
-    -- 1. Дроп в ЧАШКУ ПЕТРИ
+    -- 0. Дроп в КРИО-ХОЛОДИЛЬНИК (Заморозка / Освободить стол)
+    local fridge = card_stack.STATIONS.cryo_fridge
+    if point_in_rect(cx, cy, fridge.x, fridge.y, fridge.w, fridge.h) then
+        if c.kind == "specimen" then
+            session.data.cryo_archive = session.data.cryo_archive or {}
+            table.insert(session.data.cryo_archive, c.specimen)
+            for idx, s in ipairs(session.data.active_specimens or {}) do
+                if s.id == c.specimen.id then
+                    table.remove(session.data.active_specimens, idx)
+                    break
+                end
+            end
+            card_stack.sync_from_session()
+            session.save()
+            return true, "Образец " .. c.specimen.name .. " заморожен в крио-камере (-196°C). Стол освобождён!"
+        end
+    end
+
+    -- 1. Дроп в ЧАШКУ ПЕТРИ (Скрещивание)
     local p = card_stack.STATIONS.petri_dish
     if point_in_rect(cx, cy, p.x, p.y, p.w, p.h) then
         card_stack.check_petri_dish()
@@ -571,11 +729,12 @@ function card_stack.mousereleased(wx, wy, button)
                     break
                 end
             end
+            return true, "Образец " .. c.specimen.name .. " установлен под микроскоп! Данные расшифрованы."
         end
         return true
     end
 
-    -- 3. Дроп в ЦЕНТРИФУГУ
+    -- 3. Дроп в ЦЕНТРИФУГУ (Очистка)
     local cent = card_stack.STATIONS.centrifuge
     if point_in_rect(cx, cy, cent.x, cent.y, cent.w, cent.h) then
         card_stack.check_centrifuge()

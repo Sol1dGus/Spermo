@@ -50,9 +50,20 @@ function love.mousepressed(x, y, button)
     state_manager.mousepressed(vx, vy, button)
 end
 
+function love.mousemoved(x, y, dx, dy)
+    local vx, vy = screen.to_virtual(x, y)
+    local vdx = dx / (screen.scale or 1)
+    local vdy = dy / (screen.scale or 1)
+    state_manager.mousemoved(vx, vy, vdx, vdy)
+end
+
 function love.mousereleased(x, y, button)
     local vx, vy = screen.to_virtual(x, y)
     state_manager.mousereleased(vx, vy, button)
+end
+
+function love.wheelmoved(x, y)
+    state_manager.wheelmoved(x, y)
 end
 
 function love.keypressed(key)
