@@ -7,7 +7,7 @@ local session = require("src.engine.session")
 local avatar = require("src.ui.avatar")
 
 function battle_state:enter(squad, enemy_type, expedition_ref)
-    self.squad = squad or (session.data and session.get_squad()) or { genetics_mod.create_random_specimen("SPERM-ALPHA") }
+    self.squad = squad or (session.data and session.get_squad()) or { genetics_mod.create_random_specimen("SPERM-ALPHA", "sperm") }
     self.enemy_type = enemy_type or "neutrophil"
     self.expedition_ref = expedition_ref
 
@@ -56,7 +56,7 @@ function battle_state:draw()
     for gx = 0, 1280, 75 do love.graphics.line(gx, 0, gx, 720) end
     for gy = 0, 720, 75 do love.graphics.line(0, gy, 1280, gy) end
 
-    -- Плавающие микрочастицы питательного субстрата
+    -- Плавающие микрочастицы среды
     for _, p in ipairs(self.particles) do
         love.graphics.setColor(0.2, 0.85, 1.0, p.alpha)
         love.graphics.circle("fill", p.x, p.y, p.r)
@@ -72,37 +72,78 @@ function battle_state:draw()
     love.graphics.setLineWidth(3)
     love.graphics.rectangle("line", b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1, 14, 14)
 
-    -- Внутренний липидный контур
+    -- Внутренний контур
     love.graphics.setColor(0.3, 0.9, 1.0, 0.25)
     love.graphics.setLineWidth(1)
     love.graphics.rectangle("line", b.x1 + 4, b.y1 + 4, (b.x2 - b.x1) - 8, (b.y2 - b.y1) - 8, 10, 10)
 
-    -- 3. Отрисовка интерактивных объектов арены (Peglin Orbs)
+    -- 3. Хемотаксические воронки (Черные дыры)
+    self:draw_vortices()
+
+    -- 4. Отрисовка интерактивных объектов арены (Peglin Orbs)
     self:draw_arena_orbs()
 
-    -- 4. Отрисовка бойцов отряда
+    -- 5. Отрисовка бойцов отряда (Сперматозоиды)
     self:draw_squad_heroes()
 
-    -- 5. Траектория прицеливания (Slingshot Trajectory Preview)
+    -- 6. Траектория прицеливания (Slingshot Trajectory Preview)
     if self.combat.is_aiming then
         self:draw_slingshot_aim()
     end
 
-    -- 6. Отрисовка врага (Иммунный страж)
+    -- 7. Отрисовка вражеской формации
     self:draw_enemy_unit()
 
-    -- 7. Ударные волны и всплывающий текст
+    -- 8. Ударные волны и всплывающий текст
     self:draw_fx_layers()
 
-    -- 8. Верхняя информационная панель
+    -- 9. Верхняя информационная панель (Выносливость, pH, Комбо)
     self:draw_top_bar()
 
-    -- 9. Нижняя панель отряда и запуска
+    -- 10. Нижняя панель отряда и подсказки
     self:draw_bottom_launch_bar()
 
-    -- 10. Модальные окна Победы и Поражения
+    -- 11. Модальные окна Победы и Поражения
     if self.combat.phase == "victory" or self.combat.phase == "defeat" then
         self:draw_end_battle_modal()
+    end
+end
+
+function battle_state:draw_vortices()
+    for _, vor in ipairs(self.combat.vortices) do
+        -- Область гравитационного притяжения
+        love.graphics.setColor(0.5, 0.2, 0.85, 0.08)
+        love.graphics.circle("fill", vor.x, vor.y, vor.pull_r)
+        love.graphics.setColor(0.65, 0.3, 0.95, 0.25)
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", vor.x, vor.y, vor.pull_r)
+
+        -- Вращающиеся спиральные рукава воронки
+        for arm = 1, 4 do
+            local arm_angle = vor.angle + (arm / 4) * math.pi * 2
+            love.graphics.setColor(0.75, 0.35, 1.0, 0.55)
+            love.graphics.setLineWidth(2)
+            local pts = {}
+            for r = 8, vor.r + 14, 5 do
+                local a = arm_angle + (r / vor.r) * 1.8
+                table.insert(pts, vor.x + math.cos(a) * r)
+                table.insert(pts, vor.y + math.sin(a) * r)
+            end
+            if #pts >= 4 then
+                love.graphics.line(pts)
+            end
+        end
+
+        -- Черное ядро сингулярности
+        love.graphics.setColor(0.04, 0.02, 0.08, 0.95)
+        love.graphics.circle("fill", vor.x, vor.y, vor.r * 0.72)
+        love.graphics.setColor(0.85, 0.4, 1.0, 0.9)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", vor.x, vor.y, vor.r * 0.72)
+
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(0.85, 0.65, 1.0, 0.85)
+        love.graphics.printf("ХЕМО-ВОРОНКА", vor.x - 60, vor.y + vor.r + 6, 120, "center")
     end
 end
 
@@ -174,7 +215,6 @@ function battle_state:draw_squad_heroes()
 
     for idx, h in ipairs(self.combat.heroes) do
         if h.hp > 0 then
-            -- Индикатор выбора и готовности к запуску
             local is_selected = (idx == cur_idx and self.combat.phase == "aiming")
             if h.ready_to_launch then
                 local ring_r = h.radius + 7 + math.sin(self.time * 6 + idx) * 3
@@ -183,8 +223,8 @@ function battle_state:draw_squad_heroes()
                 love.graphics.circle("line", h.x, h.y, ring_r)
             end
 
-            -- Отрисовка хвоста для сперматозоидов
-            if not h.is_oocyte and h.tail_segs > 0 then
+            -- Отрисовка хвоста жгутика
+            if h.tail_segs > 0 then
                 for s = 1, h.tail_segs - 1 do
                     local p1 = h.tail[s]
                     local p2 = h.tail[s + 1]
@@ -195,11 +235,10 @@ function battle_state:draw_squad_heroes()
                 end
             end
 
-            -- Отрисовка клетки через процедурный аватар
-            local sc = h.is_oocyte and 0.95 or 0.70
-            avatar.draw(h.specimen, h.x, h.y, sc, self.time, h.angle)
+            -- Отрисовка сперматозоида через процедурный аватар
+            avatar.draw(h.specimen, h.x, h.y, 0.70, self.time, h.angle)
 
-            -- Полоска ХП и щита над клеткой
+            -- Полоска ХП и щита
             local bar_w = h.radius * 2 + 10
             local bar_h = 6
             local bar_x = h.x - bar_w / 2
@@ -209,7 +248,7 @@ function battle_state:draw_squad_heroes()
             love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 2, 2)
 
             local hp_pct = math.max(0, math.min(1, h.hp / h.max_hp))
-            love.graphics.setColor(h.is_oocyte and {0.98, 0.5, 0.8, 0.95} or {0.2, 0.85, 0.4, 0.95})
+            love.graphics.setColor(0.2, 0.85, 0.4, 0.95)
             love.graphics.rectangle("fill", bar_x, bar_y, bar_w * hp_pct, bar_h, 2, 2)
 
             if h.shield > 0 then
@@ -233,12 +272,11 @@ function battle_state:draw_slingshot_aim()
     local aim_x = self.combat.aim_curr_x
     local aim_y = self.combat.aim_curr_y
 
-    -- Натяжная линия (рогатка)
+    -- Натяжная линия рогатки
     love.graphics.setColor(1.0, 0.8, 0.2, 0.85)
     love.graphics.setLineWidth(2.5)
     love.graphics.line(hero.x, hero.y, aim_x, aim_y)
 
-    -- Рукоятка натяжения
     love.graphics.setColor(1.0, 0.9, 0.3, 0.95)
     love.graphics.circle("fill", aim_x, aim_y, 6)
     love.graphics.setColor(1, 1, 1, 0.8)
@@ -268,7 +306,6 @@ function battle_state:draw_slingshot_aim()
             cur_x = cur_x + sim_vx * step_len
             cur_y = cur_y + sim_vy * step_len
 
-            -- Отражение от стенок в предпросмотре
             if cur_x < b.x1 + hero.radius then
                 cur_x = b.x1 + hero.radius
                 sim_vx = -sim_vx
@@ -293,31 +330,35 @@ function battle_state:draw_slingshot_aim()
 end
 
 function battle_state:draw_enemy_unit()
-    local enemy = self.combat.enemy
-    enemy:draw()
+    for _, enemy in ipairs(self.combat.enemies) do
+        if enemy.hp > 0 then
+            enemy:draw()
 
-    -- Индикатор уязвимого места со спины (Weakspot Core)
-    local weak_x = enemy.x + 48
-    local weak_y = enemy.y
-    local pulse = math.sin(self.time * 5) * 3
+            if enemy.is_leader then
+                -- Индикатор уязвимого места со спины (Weakspot Core)
+                local weak_x = enemy.x + 46
+                local weak_y = enemy.y
+                local pulse = math.sin(self.time * 5) * 3
 
-    love.graphics.setColor(1.0, 0.25, 0.25, 0.35)
-    love.graphics.circle("fill", weak_x, weak_y, 16 + pulse)
-    love.graphics.setColor(1.0, 0.3, 0.3, 0.95)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.circle("line", weak_x, weak_y, 14)
+                love.graphics.setColor(1.0, 0.25, 0.25, 0.35)
+                love.graphics.circle("fill", weak_x, weak_y, 16 + pulse)
+                love.graphics.setColor(1.0, 0.3, 0.3, 0.95)
+                love.graphics.setLineWidth(1.5)
+                love.graphics.circle("line", weak_x, weak_y, 14)
 
-    -- Прицельная метка
-    love.graphics.line(weak_x - 18, weak_y, weak_x + 18, weak_y)
-    love.graphics.line(weak_x, weak_y - 18, weak_x, weak_y + 18)
+                -- Прицельная метка
+                love.graphics.line(weak_x - 18, weak_y, weak_x + 18, weak_y)
+                love.graphics.line(weak_x, weak_y - 18, weak_x, weak_y + 18)
 
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(1.0, 0.85, 0.3, 0.9)
-    love.graphics.print("ЯДРО x1.6", weak_x - 22, weak_y + 18)
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(1.0, 0.85, 0.3, 0.9)
+                love.graphics.print("ЯДРО x1.8", weak_x - 22, weak_y + 18)
+            end
+        end
+    end
 end
 
 function battle_state:draw_fx_layers()
-    -- Ударные волны
     for _, sw in ipairs(self.combat.shockwaves) do
         local p = sw.timer / sw.max_time
         love.graphics.setColor(sw.col[1], sw.col[2], sw.col[3], p * 0.85)
@@ -325,7 +366,6 @@ function battle_state:draw_fx_layers()
         love.graphics.circle("line", sw.x, sw.y, sw.r)
     end
 
-    -- Всплывающий текст урона / рикошетов
     love.graphics.setFont(fonts.bold)
     for _, ft in ipairs(self.combat.floating_texts) do
         local alpha = math.min(1.0, ft.timer / 0.4)
@@ -344,17 +384,24 @@ function battle_state:draw_top_bar()
     love.graphics.setColor(0.25, 0.95, 1.0, 1)
     love.graphics.print("SPERMO: БИО-РИКОШЕТ В ТРАКТЕ", 20, 14)
 
-    -- Индикатор pH
-    local ph = self.combat.ph
-    local ph_col = (ph < 6.0 and {0.95, 0.35, 0.2}) or (ph <= 7.6 and {0.2, 0.95, 0.4}) or {0.8, 0.35, 0.95}
+    -- Выносливость эякулята (Таймер раундов)
+    local st_pct = self.combat.stamina_turns / self.combat.max_stamina_turns
+    local st_col = (st_pct > 0.5 and {0.2, 0.95, 0.4}) or (st_pct > 0.25 and {1.0, 0.75, 0.2}) or {0.95, 0.3, 0.3}
     love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(ph_col)
-    love.graphics.print("Среда pH: " .. string.format("%.1f", ph) .. " [Оптимум]", 460, 18)
+    love.graphics.setColor(st_col)
+    love.graphics.print("ВЫНОСЛИВОСТЬ: " .. self.combat.stamina_turns .. "/" .. self.combat.max_stamina_turns .. " раундов", 420, 18)
 
-    -- Комбо-счетчик рикошетов
+    -- pH среды
+    local ph = self.combat.ph
+    local ph_col = (ph < 5.8 and {0.95, 0.25, 0.2}) or (ph <= 7.6 and {0.3, 0.9, 1.0}) or {0.8, 0.35, 0.95}
+    love.graphics.setColor(ph_col)
+    local ph_warn = (ph < 5.8 and " [АЦИДОЗ -3 ХП!]" or " [Оптимум]")
+    love.graphics.print("pH: " .. string.format("%.1f", ph) .. ph_warn, 720, 18)
+
+    -- Комбо рикошетов
     local cmb = self.combat.combo_ricochets
     love.graphics.setColor(cmb > 1.2 and {1.0, 0.75, 0.2, 1} or {0.6, 0.8, 0.95, 0.8})
-    love.graphics.print("КОМБО РИКОШЕТОВ: x" .. string.format("%.1f", cmb), 720, 18)
+    love.graphics.print("КОМБО: x" .. string.format("%.1f", cmb), 930, 18)
 
     -- Кнопка "В Хаб / Отступить"
     love.graphics.setColor(0.12, 0.22, 0.35, 0.9)
@@ -388,29 +435,24 @@ function battle_state:draw_bottom_launch_bar()
         love.graphics.setLineWidth(is_sel and 2 or 1)
         love.graphics.rectangle("line", sx, by + 6, slot_w, 36, 4, 4)
 
-        -- Иконка пола
         love.graphics.setFont(fonts.small)
-        love.graphics.setColor(h.is_oocyte and {0.98, 0.55, 0.8, 1} or {0.3, 0.9, 1, 1})
-        local pref = h.is_oocyte and "[♀] " or "[♂] "
-        love.graphics.print(pref .. h.name:sub(1, 8), sx + 6, by + 10)
+        love.graphics.setColor(0.3, 0.9, 1, 1)
+        love.graphics.print("[♂] " .. h.name:sub(1, 10), sx + 6, by + 10)
 
-        -- Индикатор готовности
         local status_str = is_dead and "МЕРТВ" or (h.ready_to_launch and "ГОТОВ" or "ЗАПУЩЕН")
         local status_col = is_dead and {0.8, 0.3, 0.3, 0.8} or (h.ready_to_launch and {0.2, 0.95, 0.4, 1} or {0.5, 0.7, 0.8, 0.7})
         love.graphics.setColor(status_col)
         love.graphics.print(status_str, sx + 6, by + 24)
 
-        -- ХП
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.printf(h.hp .. "/" .. h.max_hp, sx + slot_w - 60, by + 24, 54, "right")
 
         sx = sx + slot_w + 12
     end
 
-    -- Подсказка управления в центре
     love.graphics.setFont(fonts.small)
-    love.graphics.setColor(0.7, 0.85, 0.95, 0.85)
-    love.graphics.printf("ЛКМ по готовому бойцу: оттяните назад для силы и угла, отпустите для запуска!", 780, by + 16, 480, "right")
+    love.graphics.setColor(0.7, 0.88, 1, 0.85)
+    love.graphics.printf("ЛКМ: рогатка запуска  •  В полете: КЛИК для СПОСОБНОСТИ!", 780, by + 16, 480, "right")
 end
 
 function battle_state:draw_end_battle_modal()
@@ -437,12 +479,11 @@ function battle_state:draw_end_battle_modal()
     love.graphics.setColor(0.9, 0.95, 1, 0.95)
     if is_vic then
         local reward = 50 + #self.combat:get_alive_heroes() * 15
-        love.graphics.printf("Иммунный страж нейтрализован био-рикошетами!\nПолучено биомассы: +" .. reward .. " БМ", mx + 20, my + 95, mw - 40, "center")
+        love.graphics.printf("Вражеская формация уничтожена био-рикошетами!\nПолучено биомассы: +" .. reward .. " БМ", mx + 20, my + 95, mw - 40, "center")
     else
-        love.graphics.printf("Все клетки отряда растворены фагоцитами.\nКампания сохранена, выжившие продолжат селекцию.", mx + 20, my + 95, mw - 40, "center")
+        love.graphics.printf("Энергия эякулята исчерпана или клетки погибли.\nКампания сохранена, продолжайте селекцию в чашке Петри.", mx + 20, my + 95, mw - 40, "center")
     end
 
-    -- Кнопка завершения боя
     love.graphics.setColor(is_vic and {0.15, 0.75, 0.35, 0.95} or {0.85, 0.25, 0.25, 0.95})
     love.graphics.rectangle("fill", mx + (mw - 280) / 2, my + 210, 280, 48, 6, 6)
     love.graphics.setColor(1, 1, 1, 1)
@@ -454,7 +495,6 @@ function battle_state:finish_battle()
     local sm = require("src.states.state_manager")
 
     if self.combat.phase == "victory" then
-        -- Начисление биомассы и сохранение ХП выживших бойцов
         local reward = 50 + #self.combat:get_alive_heroes() * 15
         if session.data then
             session.data.biomass = (session.data.biomass or 0) + reward
@@ -488,7 +528,7 @@ function battle_state:finish_battle()
             end
 
             if #session.data.colony == 0 then
-                local survivor = genetics_mod.create_random_specimen("SPERM-SURVIVOR")
+                local survivor = genetics_mod.create_random_specimen("SPERM-SURVIVOR", "sperm")
                 table.insert(session.data.colony, survivor)
                 session.data.squad_ids = { survivor.id }
             end
@@ -503,6 +543,12 @@ end
 
 function battle_state:mousepressed(x, y, button)
     if button ~= 1 then return end
+
+    -- Если клетка сейчас летит: клик активирует способность в полете!
+    if self.combat.phase == "flying" then
+        self.combat:trigger_mid_flight_ability()
+        return
+    end
 
     -- Модальное окно победы/поражения
     if self.combat.phase == "victory" or self.combat.phase == "defeat" then
@@ -573,7 +619,9 @@ function battle_state:keypressed(key)
             sm.switch("hub")
         end
     elseif key == "space" then
-        if self.combat.phase == "victory" or self.combat.phase == "defeat" then
+        if self.combat.phase == "flying" then
+            self.combat:trigger_mid_flight_ability()
+        elseif self.combat.phase == "victory" or self.combat.phase == "defeat" then
             self:finish_battle()
         end
     end

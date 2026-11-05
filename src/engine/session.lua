@@ -211,8 +211,9 @@ function session.new_game()
         biomass = 150,
         dna_samples = 2,
         colony = { s1, s2, o1 },
-        squad_ids = { s1.id }, -- Отряд до 4 бойцов
+        squad_ids = { s1.id }, -- Отряд до 4 бойцов (только сперматозоиды)
         selected_fighter_id = s1.id,
+        relics = {},
         cryo_vault = {},
         donor_market = session.generate_market(),
         stats = {
@@ -294,6 +295,7 @@ function session.load()
         session.data = loaded
         session.data.cryo_vault = session.data.cryo_vault or {}
         session.data.squad_ids = session.data.squad_ids or {}
+        session.data.relics = session.data.relics or {}
 
         for _, spec in ipairs(session.data.colony) do
             if not spec.unit_type then
@@ -339,16 +341,22 @@ function session.get_squad()
     end
 
     for _, spec in ipairs(session.data.colony) do
-        if id_map[spec.id] then
+        -- В боевой отряд допускаются исключительно сперматозоиды ♂
+        if id_map[spec.id] and spec.unit_type ~= "oocyte" then
             table.insert(squad, spec)
         end
     end
 
-    -- Если отряд опустел, добавляем первого доступного бойца
+    -- Если отряд опустел, добавляем первого доступного сперматозоида
     if #squad == 0 and #session.data.colony > 0 then
-        table.insert(squad, session.data.colony[1])
-        session.data.squad_ids = { session.data.colony[1].id }
-        session.data.selected_fighter_id = session.data.colony[1].id
+        for _, spec in ipairs(session.data.colony) do
+            if spec.unit_type ~= "oocyte" then
+                table.insert(squad, spec)
+                session.data.squad_ids = { spec.id }
+                session.data.selected_fighter_id = spec.id
+                break
+            end
+        end
     end
 
     return squad
@@ -367,6 +375,15 @@ function session.add_to_squad(spec_id)
     session.data.squad_ids = session.data.squad_ids or {}
     if #session.data.squad_ids >= 4 then return false, "Отряд уже укомплектован (макс. 4)!" end
     if session.is_in_squad(spec_id) then return false, "Особь уже в составе отряда!" end
+
+    -- Проверка: только сперматозоиды допускаются в шлюз вылазки
+    local target_spec = nil
+    for _, s in ipairs(session.data.colony) do
+        if s.id == spec_id then target_spec = s; break end
+    end
+    if target_spec and target_spec.unit_type == "oocyte" then
+        return false, "Яйцеклетки остаются в чашке Петри! В вылазку идут только сперматозоиды ♂."
+    end
 
     table.insert(session.data.squad_ids, spec_id)
     session.data.selected_fighter_id = session.data.squad_ids[1]

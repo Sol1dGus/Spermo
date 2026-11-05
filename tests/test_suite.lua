@@ -29,11 +29,12 @@ for i, unit in ipairs(session.data.colony) do
     print("  Unit " .. i .. ":", unit.name, unit.unit_type, unit.gender)
 end
 
--- Add up to 4 units
+-- Add up to 4 sperm units
 local u1 = session.data.colony[1]
 local u2 = session.data.colony[2]
-local u3 = session.data.colony[3]
-local u4 = genetics.create_random_specimen("SPERM-DELTA")
+local u3 = genetics.create_random_specimen("SPERM-GAMMA", "sperm")
+local u4 = genetics.create_random_specimen("SPERM-DELTA", "sperm")
+table.insert(session.data.colony, u3)
 table.insert(session.data.colony, u4)
 
 session.add_to_squad(u2.id)
@@ -41,8 +42,8 @@ session.add_to_squad(u3.id)
 session.add_to_squad(u4.id)
 
 local squad = session.get_squad()
-print("Squad count:", #squad)
-assert(#squad == 4, "Squad should have 4 units")
+print("Squad count (only spermatozoa ♂):", #squad)
+assert(#squad == 4, "Squad should have 4 sperm units")
 
 print("--- 4. Testing Squad Combat (4 heroes vs Enemy) ---")
 local battle = combat.new(squad, "neutrophil")
@@ -106,9 +107,12 @@ print("Mutant attack card resolved! Enemy HP before:", prev_hp, "after:", freak_
 print("--- 7. Testing Physics Slingshot & Ricochet Combat Engine ---")
 local physics_combat = require("src.engine.physics_combat")
 local p_battle = physics_combat.new(squad, "neutrophil")
-assert(#p_battle.heroes == 4, "Physics arena should have 4 heroes")
+assert(#p_battle.heroes == 4, "Physics arena should have 4 sperm heroes")
 assert(p_battle.phase == "aiming", "Initial phase should be aiming")
-print("Physics arena initialized. Hero 1:", p_battle.heroes[1].name, "Mass:", p_battle.heroes[1].mass, "Power:", p_battle.heroes[1].launch_power)
+assert(#p_battle.enemies == 5, "Enemy formation should have leader + 3 bacteria + 1 antibody")
+assert(#p_battle.vortices == 1, "Arena should feature chemotactic singularity vortex")
+assert(p_battle.stamina_turns == 7, "Initial stamina turns should be 7")
+print("Physics arena initialized. Formation enemies count:", #p_battle.enemies, "Vortices:", #p_battle.vortices)
 
 -- Test aiming and slingshot launch
 local hero1 = p_battle.heroes[1]
@@ -123,21 +127,33 @@ assert(p_battle.phase == "flying", "Phase should be flying")
 assert(hero1.vx > 0, "Hero should have positive horizontal launch velocity")
 print("Hero successfully launched! Initial vx:", math.floor(hero1.vx), "vy:", math.floor(hero1.vy))
 
--- Simulate physics steps
+-- Test mid-flight active ability trigger
+local trig_ok = p_battle:trigger_mid_flight_ability()
+assert(trig_ok, "Mid-flight ability should trigger successfully")
+assert(hero1.ability_used, "hero.ability_used should be true")
+print("Mid-flight ability triggered successfully in flight!")
+
+-- Simulate physics steps with vortex gravity and bouncing
 for step = 1, 60 do
     p_battle:update(0.016, 0, 0)
 end
 print("Simulated 60 physics frames. Hero position:", math.floor(hero1.x), math.floor(hero1.y), "Combo:", p_battle.combo_ricochets)
 
--- Test direct strike on enemy
-local enemy_hp_before = p_battle.enemy.hp
-hero1.x = p_battle.enemy.x - 30
-hero1.y = p_battle.enemy.y
+-- Test direct strike on enemy leader
+local leader = p_battle.enemies[1]
+local leader_hp_before = leader.hp
+hero1.x = leader.x - 30
+hero1.y = leader.y
 hero1.vx = 400
 hero1.vy = 0
-p_battle:strike_enemy(hero1)
-assert(p_battle.enemy.hp < enemy_hp_before, "Enemy should take damage from physical strike")
-print("Physical strike resolved! Enemy HP before:", enemy_hp_before, "after:", p_battle.enemy.hp)
+p_battle:strike_enemy(hero1, leader)
+assert(leader.hp < leader_hp_before, "Leader should take damage from physical strike")
+print("Physical strike on enemy resolved! HP before:", leader_hp_before, "after:", leader.hp)
+
+-- Test enemy phase and stamina reduction
+p_battle:execute_enemy_phase()
+assert(p_battle.stamina_turns == 6, "Stamina turns should decrement by 1 after enemy phase")
+print("Enemy phase executed. Remaining stamina turns:", p_battle.stamina_turns, "pH:", p_battle.ph)
 
 print(">>> ALL TESTS PASSED SUCCESSFULLY! <<<")
 love.event.quit(0)

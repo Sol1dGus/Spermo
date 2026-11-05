@@ -3,6 +3,7 @@ physics_combat.__index = physics_combat
 
 local enemy_mod = require("src.entities/enemy")
 local fonts = require("src.ui.fonts")
+local session = require("src.engine.session")
 
 function physics_combat.new(squad_or_specimen, enemy_type)
     local self = setmetatable({}, physics_combat)
@@ -16,26 +17,41 @@ function physics_combat.new(squad_or_specimen, enemy_type)
     }
 
     self.time = 0
-    self.ph = 7.3
+    self.ph = 7.4
     self.phase = "aiming" -- "aiming", "flying", "enemy_turn", "victory", "defeat"
     self.turn = 1
 
-    -- Инициализация отряда бойцов в арене
+    -- Ограничение выносливости / времени жизни эякулята
+    self.max_stamina_turns = 7
+    self.stamina_turns = 7
+
+    -- Инициализация отряда бойцов (ТОЛЬКО СПЕРМАТОЗОИДЫ ♂)
     self.heroes = {}
     local raw_list = squad_or_specimen or {}
     if raw_list.id or raw_list.name then raw_list = {raw_list} end
 
-    local squad_count = math.max(1, #raw_list)
-    for i, spec in ipairs(raw_list) do
-        local is_oocyte = (spec.unit_type == "oocyte")
+    -- Фильтруем только сперматозоиды
+    local sperm_list = {}
+    for _, spec in ipairs(raw_list) do
+        if spec.unit_type ~= "oocyte" then
+            table.insert(sperm_list, spec)
+        end
+    end
+    if #sperm_list == 0 then
+        local genetics_mod = require("src.engine.genetics")
+        table.insert(sperm_list, genetics_mod.create_random_specimen("SPERM-ALPHA", "sperm"))
+    end
+
+    local squad_count = #sperm_list
+    for i, spec in ipairs(sperm_list) do
         local p = spec.phenotype or {}
 
         -- Начальная расстановка в левой зоне арены
-        local start_x = is_oocyte and 150 or (110 + (i % 2) * 60)
-        local start_y = 140 + (i - 1) * (440 / squad_count)
+        local start_x = 110 + (i % 2) * 60
+        local start_y = 150 + (i - 1) * (420 / math.max(1, squad_count))
 
         -- Параметры физики на основе генетики
-        local mass = is_oocyte and 5.0 or 1.0
+        local mass = 1.0
         if spec.chromosomes and spec.chromosomes.ch4 == "MEM_DENSE" then
             mass = mass + 0.7
         end
@@ -51,20 +67,20 @@ function physics_combat.new(squad_or_specimen, enemy_type)
             elasticity = 0.91
         end
 
-        local launch_power = is_oocyte and 340 or (460 + (p.frequency_hz or 30) * 4.5)
+        local launch_power = 460 + (p.frequency_hz or 30) * 4.5
         if spec.chromosomes and spec.chromosomes.ch2 == "MITO_HIGH" then
-            launch_power = launch_power + 70
+            launch_power = launch_power + 80
         end
         if spec.chromosomes and spec.chromosomes.ch3 == "FLA_STUB" then
-            launch_power = launch_power + 140 -- Взрывной рывок
+            launch_power = launch_power + 150 -- Взрывной рывок
         end
 
-        local friction = is_oocyte and 0.85 or 0.48
+        local friction = 0.48
         if spec.chromosomes and spec.chromosomes.ch2 == "MITO_HIGH" then
-            friction = 0.32 -- Скользит в слизи
+            friction = 0.30 -- Скользит в слизи
         end
 
-        local impact_dmg = is_oocyte and 14 or (8 + (p.bonus_dmg or 0))
+        local impact_dmg = 8 + (p.bonus_dmg or 0)
         if spec.chromosomes and spec.chromosomes.ch1 == "ACR_HYPER" then
             impact_dmg = impact_dmg + 6
         end
@@ -72,29 +88,27 @@ function physics_combat.new(squad_or_specimen, enemy_type)
             impact_dmg = impact_dmg + 8
         end
 
-        local radius = is_oocyte and 40 or 20
-
         -- Сегменты хвоста для инерционной гидродинамики
         local tail = {}
-        local tail_segs = is_oocyte and 0 or 14
+        local tail_segs = 14
         for s = 1, tail_segs do
             table.insert(tail, {x = start_x, y = start_y})
         end
 
         local hero = {
-            id = spec.id or ("hero_" .. i),
-            name = spec.name or ("Клетка-" .. i),
+            id = spec.id or ("sperm_" .. i),
+            name = spec.name or ("Сперматозоид-" .. i),
             specimen = spec,
-            is_oocyte = is_oocyte,
-            hp = p.current_hp or p.max_hp or (is_oocyte and 45 or 30),
-            max_hp = p.max_hp or (is_oocyte and 45 or 30),
+            is_oocyte = false,
+            hp = p.current_hp or p.max_hp or 30,
+            max_hp = p.max_hp or 30,
             shield = p.shield or 0,
             x = start_x,
             y = start_y,
             vx = 0,
             vy = 0,
             angle = 0,
-            radius = radius,
+            radius = 20,
             mass = mass,
             elasticity = elasticity,
             launch_power = launch_power,
@@ -102,6 +116,7 @@ function physics_combat.new(squad_or_specimen, enemy_type)
             impact_dmg = impact_dmg,
             ready_to_launch = true,
             is_flying = false,
+            ability_used = false,
             tail = tail,
             tail_segs = tail_segs,
             burst_mito_ready = (spec.chromosomes and spec.chromosomes.ch2 == "MITO_BURST"),
@@ -117,16 +132,15 @@ function physics_combat.new(squad_or_specimen, enemy_type)
         table.insert(self.heroes, hero)
     end
 
-    -- Враг (Лейкоцит / Макрофаг)
-    self.enemy_type = enemy_type or "neutrophil"
-    self.enemy = enemy_mod.new(self.enemy_type, 1020, 360)
-    self.enemy.radius = 65
-    self.enemy.vx = 0
-    self.enemy.vy = 0
-    self.enemy.mass = 18.0
-    self.enemy.is_stunned = false
+    -- Формация врагов (Группа врагов: Элитный страж + Бактерии-кегли + Антитело)
+    self.enemies = {}
+    self:init_enemy_formation(enemy_type or "neutrophil")
 
-    -- Интерактивные объекты арены (В духе Peglin / Микро-бильярд)
+    -- Хемотаксические воронки (Черные дыры арены)
+    self.vortices = {}
+    self:init_vortices()
+
+    -- Интерактивные объекты арены (Фруктоза, Бикарбонат, Сети NETs)
     self.orbs = {}
     self:init_arena_orbs()
 
@@ -149,18 +163,129 @@ function physics_combat.new(squad_or_specimen, enemy_type)
 
     self.enemy_turn_timer = 0
 
-    self:add_log("=== ВЫЛАЗКА: ФИЗИЧЕСКИЙ РИКОШЕТ В ТРАКТЕ ===")
-    self:add_log("Натяните мышь от клетки назад для прицеливания и отпустите для запуска!")
+    self:add_log("=== ВЫЛАЗКА: ПРОРЫВ В ТРАКТЕ ===")
+    self:add_log("Зажмите ЛКМ на сперматозоиде, оттяните рогатку назад и отпустите!")
+    self:add_log("Во время полета кликайте для активации способности!")
 
     return self
+end
+
+function physics_combat:init_enemy_formation(enemy_type)
+    self.enemies = {}
+
+    -- 1. Главный иммунный страж (Нейтрофил или Макрофаг)
+    local leader = enemy_mod.new(enemy_type, 1040, 360)
+    leader.radius = 56
+    leader.mass = 18.0
+    leader.is_leader = true
+    leader.is_stunned = false
+    table.insert(self.enemies, leader)
+    self.enemy = leader -- Обратная совместимость
+
+    -- 2. Свита бактерий-кеглей (Кокки / Стрептококки)
+    local cocci_configs = {
+        { name = "Стафилококк α", x = 860, y = 260, r = 21, hp = 15, col = {0.35, 0.85, 0.35} },
+        { name = "Стафилококк β", x = 860, y = 460, r = 21, hp = 15, col = {0.35, 0.85, 0.35} },
+        { name = "Стрептококк γ", x = 810, y = 360, r = 23, hp = 18, col = {0.45, 0.90, 0.50} }
+    }
+
+    for _, c in ipairs(cocci_configs) do
+        table.insert(self.enemies, {
+            name = c.name,
+            x = c.x,
+            y = c.y,
+            radius = c.r,
+            hp = c.hp,
+            max_hp = c.hp,
+            armor = 0,
+            shield = 0,
+            mass = 2.5,
+            color = c.col,
+            is_bacteria = true,
+            update = function(s, dt) end,
+            take_damage = function(s, amount, dtype)
+                s.hp = math.max(0, s.hp - amount)
+            end,
+            draw = function(s)
+                love.graphics.setColor(s.color[1], s.color[2], s.color[3], 0.25)
+                love.graphics.circle("fill", s.x, s.y, s.radius + 4)
+                love.graphics.setColor(s.color[1], s.color[2], s.color[3], 0.9)
+                love.graphics.circle("fill", s.x, s.y, s.radius)
+                love.graphics.setColor(1, 1, 1, 0.8)
+                love.graphics.setLineWidth(1.5)
+                love.graphics.circle("line", s.x, s.y, s.radius)
+
+                -- Ядрышко бактерии
+                love.graphics.setColor(0.1, 0.3, 0.15, 0.9)
+                love.graphics.circle("fill", s.x, s.y, s.radius * 0.45)
+
+                -- Полоска ХП
+                local bw = s.radius * 2
+                local bh = 4
+                love.graphics.setColor(0.1, 0.15, 0.2, 0.8)
+                love.graphics.rectangle("fill", s.x - s.radius, s.y - s.radius - 8, bw, bh, 2, 2)
+                local pct = math.max(0, s.hp / s.max_hp)
+                love.graphics.setColor(0.9, 0.2, 0.3, 0.9)
+                love.graphics.rectangle("fill", s.x - s.radius, s.y - s.radius - 8, bw * pct, bh, 2, 2)
+            end
+        })
+    end
+
+    -- 3. Парящее антитело (Липучка IgG)
+    table.insert(self.enemies, {
+        name = "Антитело IgG",
+        x = 750,
+        y = 210,
+        radius = 18,
+        hp = 12,
+        max_hp = 12,
+        armor = 0,
+        shield = 0,
+        mass = 1.2,
+        is_antibody = true,
+        update = function(s, dt) end,
+        take_damage = function(s, amount, dtype)
+            s.hp = math.max(0, s.hp - amount)
+        end,
+        draw = function(s)
+            love.graphics.setColor(0.9, 0.4, 0.2, 0.25)
+            love.graphics.circle("fill", s.x, s.y, s.radius + 3)
+
+            -- Y-образная форма антитела
+            love.graphics.setColor(1.0, 0.5, 0.2, 0.95)
+            love.graphics.setLineWidth(3.0)
+            love.graphics.line(s.x, s.y + 12, s.x, s.y - 2)
+            love.graphics.line(s.x, s.y - 2, s.x - 12, s.y - 12)
+            love.graphics.line(s.x, s.y - 2, s.x + 12, s.y - 12)
+
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(1, 0.8, 0.6, 0.9)
+            love.graphics.printf(s.hp .. " ХП", s.x - 30, s.y - s.radius - 14, 60, "center")
+        end
+    })
+end
+
+function physics_combat:init_vortices()
+    self.vortices = {}
+    -- Хемотаксическая воронка слизи (Черная дыра) в центре
+    table.insert(self.vortices, {
+        id = "vortex_center",
+        x = 640,
+        y = 360,
+        r = 38,
+        pull_r = 230,
+        strength = 580,
+        angle = 0,
+        spin_speed = 3.6
+    })
 end
 
 function physics_combat:init_arena_orbs()
     self.orbs = {}
 
-    -- 1. Пузыри гликогена и фруктозы (Speed Boost + Healing)
+    -- 1. Пузыри гликогена и фруктозы (Speed Boost + Turn Stamina + Healing)
     local fructose_coords = {
-        {500, 200}, {520, 480}, {720, 180}, {740, 520}, {620, 350}
+        {490, 200}, {510, 500}, {730, 160}, {730, 540}
     }
     for i, pt in ipairs(fructose_coords) do
         table.insert(self.orbs, {
@@ -174,9 +299,9 @@ function physics_combat:init_arena_orbs()
         })
     end
 
-    -- 2. Бикарбонатные кристаллы (Щит + Ударная волна)
+    -- 2. Бикарбонатные кристаллы (Щит + Стабилизация pH)
     local bicarb_coords = {
-        {420, 340}, {860, 220}, {870, 490}
+        {420, 350}, {890, 190}, {900, 520}
     }
     for i, pt in ipairs(bicarb_coords) do
         table.insert(self.orbs, {
@@ -192,7 +317,7 @@ function physics_combat:init_arena_orbs()
 
     -- 3. Нити сетей ДНК нейтрофилов (NETs Trap - замедлители)
     local nets_coords = {
-        {680, 280, 55, 120}, {840, 330, 45, 90}
+        {780, 275, 45, 110}
     }
     for i, nt in ipairs(nets_coords) do
         table.insert(self.orbs, {
@@ -243,8 +368,15 @@ function physics_combat:get_alive_heroes()
     return res
 end
 
+function physics_combat:get_alive_enemies()
+    local res = {}
+    for _, e in ipairs(self.enemies) do
+        if e.hp > 0 then table.insert(res, e) end
+    end
+    return res
+end
+
 function physics_combat:auto_select_ready_hero()
-    local alive = self:get_alive_heroes()
     for idx, h in ipairs(self.heroes) do
         if h.hp > 0 and h.ready_to_launch then
             self.selected_hero_idx = idx
@@ -253,11 +385,57 @@ function physics_combat:auto_select_ready_hero()
     end
 end
 
+-- АКТИВНАЯ СПОСОБНОСТЬ В ПОЛЕТЕ (Mid-Flight Trigger)
+function physics_combat:trigger_mid_flight_ability()
+    local h = self.current_flying_hero
+    if not h or not h.is_flying or h.ability_used then return false end
+
+    h.ability_used = true
+
+    if h.special_physics.is_two_headed then
+        -- Двуглавый сплит: выпускает ударную волну во все стороны и ускоряется
+        self:add_shockwave(h.x, h.y, 85, {1, 0.35, 0.45, 0.95})
+        self:add_float_text("ДВУГЛАВЫЙ СПЛИТ!", h.x, h.y - 30, {1, 0.35, 0.45, 1})
+        self:add_log(h.name .. " активировал двуглавое расщепление!")
+        self.combo_ricochets = self.combo_ricochets + 0.6
+    elseif h.burst_mito_ready or (h.specimen.chromosomes and h.specimen.chromosomes.ch2 == "MITO_BURST") then
+        -- Митохондриальный нитро-форсаж
+        local cur_spd = math.sqrt(h.vx^2 + h.vy^2)
+        local dir_x = cur_spd > 0 and (h.vx / cur_spd) or 1
+        local dir_y = cur_spd > 0 and (h.vy / cur_spd) or 0
+        h.vx = h.vx + dir_x * 240
+        h.vy = h.vy + dir_y * 240
+        self:add_shockwave(h.x, h.y, 70, {1, 0.8, 0.2, 1})
+        self:add_float_text("МИТО-ФОРСАЖ!", h.x, h.y - 30, {1, 0.8, 0.2, 1})
+        self:add_log(h.name .. " совершил реактивный рывок в полете!")
+    elseif h.special_physics.is_corkscrew then
+        -- Турбо-бур штопора: снимает замедление и разгоняет вращение
+        local cur_spd = math.sqrt(h.vx^2 + h.vy^2)
+        local dir_x = cur_spd > 0 and (h.vx / cur_spd) or 1
+        local dir_y = cur_spd > 0 and (h.vy / cur_spd) or 0
+        h.vx = h.vx + dir_x * 160
+        h.vy = h.vy + dir_y * 160
+        self:add_shockwave(h.x, h.y, 65, {0.9, 0.4, 0.9, 1})
+        self:add_float_text("ТУРБО-БУРЕНИЕ!", h.x, h.y - 30, {0.9, 0.4, 0.9, 1})
+        self:add_log(h.name .. " включил турбо-бурение сквозь препятствия!")
+    else
+        -- Базовый хлыстовой толчок жгутиком
+        local cur_spd = math.sqrt(h.vx^2 + h.vy^2)
+        local dir_x = cur_spd > 0 and (h.vx / cur_spd) or 1
+        local dir_y = cur_spd > 0 and (h.vy / cur_spd) or 0
+        h.vx = h.vx + dir_x * 120
+        h.vy = h.vy + dir_y * 120
+        self:add_shockwave(h.x, h.y, 50, {0.3, 0.9, 1, 0.9})
+        self:add_float_text("ХЛЫСТ ЖГУТИКА!", h.x, h.y - 25, {0.3, 0.9, 1, 1})
+    end
+
+    return true
+end
+
 function physics_combat:start_aiming(mx, my)
     if self.phase ~= "aiming" then return false end
     local hero = self.heroes[self.selected_hero_idx]
     if not hero or hero.hp <= 0 or not hero.ready_to_launch then
-        -- Попытка кликнуть прямо на другого готового бойца
         for idx, h in ipairs(self.heroes) do
             if h.hp > 0 and h.ready_to_launch then
                 local d = math.sqrt((mx - h.x)^2 + (my - h.y)^2)
@@ -300,7 +478,6 @@ function physics_combat:release_aim()
     local pull_y = hero.y - self.aim_curr_y
     local pull_len = math.sqrt(pull_x^2 + pull_y^2)
 
-    -- Минимальное натяжение для исключения случайных мискликов
     if pull_len < 18 then return end
 
     local max_pull = 160
@@ -315,6 +492,7 @@ function physics_combat:release_aim()
     hero.angle = math.atan2(hero.vy, hero.vx)
     hero.is_flying = true
     hero.ready_to_launch = false
+    hero.ability_used = false
 
     self.current_flying_hero = hero
     self.phase = "flying"
@@ -327,7 +505,16 @@ end
 
 function physics_combat:update(dt, mx, my)
     self.time = self.time + dt
-    self.enemy:update(dt)
+
+    -- Обновление врагов
+    for _, e in ipairs(self.enemies) do
+        e:update(dt)
+    end
+
+    -- Вращение хемотаксических воронок (Черных дыр)
+    for _, v in ipairs(self.vortices) do
+        v.angle = v.angle + v.spin_speed * dt
+    end
 
     -- Обновление таймеров респавна сфер
     for _, orb in ipairs(self.orbs) do
@@ -337,22 +524,22 @@ function physics_combat:update(dt, mx, my)
         end
     end
 
-    -- 1. Физическая симуляция полета активного бойца
+    -- 1. Физическая симуляция полета активного сперматозоида
     if self.phase == "flying" and self.current_flying_hero then
         self:update_flying_hero(self.current_flying_hero, dt)
     end
 
-    -- 2. Фаза хода противника
+    -- 2. Фаза хода противников
     if self.phase == "enemy_turn" then
         self.enemy_turn_timer = self.enemy_turn_timer - dt
         if self.enemy_turn_timer <= 0 then
-            self:execute_enemy_action()
+            self:execute_enemy_phase()
         end
     end
 
     -- Обновление плавного отставания хвостов всех неподвижных сперматозоидов
     for _, h in ipairs(self.heroes) do
-        if not h.is_oocyte and not h.is_flying then
+        if not h.is_flying then
             self:update_idle_tail(h, dt)
         end
     end
@@ -382,16 +569,33 @@ function physics_combat:update_flying_hero(h, dt)
     h.vx = h.vx * math.max(0, 1.0 - drag * dt)
     h.vy = h.vy * math.max(0, 1.0 - drag * dt)
 
-    -- Гравитационное притяжение ооцитов (Chemotactic Gravity Assist)
-    for _, ally in ipairs(self.heroes) do
-        if ally.is_oocyte and ally.hp > 0 and ally ~= h then
-            local gdx = ally.x - h.x
-            local gdy = ally.y - h.y
-            local gdist = math.sqrt(gdx^2 + gdy^2)
-            if gdist > ally.radius and gdist < 260 then
-                local gforce = (1.0 - gdist / 260) * 480 * dt
-                h.vx = h.vx + (gdx / gdist) * gforce
-                h.vy = h.vy + (gdy / gdist) * gforce
+    -- Гравитационные хемо-воронки (Черные дыры арены)
+    for _, vor in ipairs(self.vortices) do
+        local vdx = vor.x - h.x
+        local vdy = vor.y - h.y
+        local vdist = math.sqrt(vdx^2 + vdy^2)
+        if vdist > 12 and vdist < vor.pull_r then
+            local norm_d = vdist / vor.pull_r
+            local pull_acc = (1.0 - norm_d) * vor.strength * dt
+
+            -- Радиальное притяжение
+            h.vx = h.vx + (vdx / vdist) * pull_acc
+            h.vy = h.vy + (vdy / vdist) * pull_acc
+
+            -- Тангенциальное закручивание орбиты (Slingshot assist)
+            local tang_x = -vdy / vdist
+            local tang_y = vdx / vdist
+            h.vx = h.vx + tang_x * (pull_acc * 0.55)
+            h.vy = h.vy + tang_y * (pull_acc * 0.55)
+
+            -- Пролет сквозь ядро воронки: катапультирующий импульс!
+            if vdist < vor.r and not h.vortex_boosted then
+                h.vortex_boosted = true
+                h.vx = h.vx * 1.35
+                h.vy = h.vy * 1.35
+                self.combo_ricochets = self.combo_ricochets + 0.8
+                self:add_shockwave(vor.x, vor.y, 80, {0.6, 0.25, 0.95, 0.9})
+                self:add_float_text("ПРАЩА ВОРОНКИ! x" .. string.format("%.1f", self.combo_ricochets), vor.x, vor.y - 35, {0.7, 0.35, 1, 1})
             end
         end
     end
@@ -402,7 +606,7 @@ function physics_combat:update_flying_hero(h, dt)
     h.angle = math.atan2(h.vy, h.vx)
 
     -- Обновление сегментов хвоста во время полета
-    if not h.is_oocyte and h.tail_segs > 0 then
+    if h.tail_segs > 0 then
         h.tail[1] = {x = h.x, y = h.y}
         for s = 2, h.tail_segs do
             local prev = h.tail[s - 1]
@@ -445,15 +649,14 @@ function physics_combat:update_flying_hero(h, dt)
         self:register_ricochet(h.x, h.y)
     end
 
-    -- 2. Соударение с интерактивными объектами арены
+    -- 2. Соударение со сферами арены (Фруктоза, Бикарбонат, Сети NETs)
     for _, orb in ipairs(self.orbs) do
         if orb.active then
             if orb.type == "nets" then
-                -- Зона замедления
                 if h.x >= orb.x and h.x <= orb.x + orb.w and h.y >= orb.y and h.y <= orb.y + orb.h then
                     if not h.special_physics.is_twin and not h.special_physics.is_corkscrew then
-                        h.vx = h.vx * 0.94
-                        h.vy = h.vy * 0.94
+                        h.vx = h.vx * 0.93
+                        h.vy = h.vy * 0.93
                     end
                 end
             else
@@ -465,29 +668,24 @@ function physics_combat:update_flying_hero(h, dt)
         end
     end
 
-    -- 3. Соударение с союзными бойцами в чашке
+    -- 3. Соударение с союзными сперматозоидами
     for _, ally in ipairs(self.heroes) do
         if ally ~= h and ally.hp > 0 then
             local ad = math.sqrt((h.x - ally.x)^2 + (h.y - ally.y)^2)
             if ad < h.radius + ally.radius then
                 self:resolve_elastic_collision(h, ally)
-                if ally.is_oocyte then
-                    -- Кортикальный бампер: ооцит заряжает сперматозоид импульсом и комбо
-                    self.combo_ricochets = self.combo_ricochets + 0.8
-                    self:add_shockwave(ally.x, ally.y, 70, {1, 0.4, 0.8, 0.9})
-                    self:add_float_text("КОРТИКАЛЬНЫЙ БУСТ! x" .. string.format("%.1f", self.combo_ricochets), ally.x, ally.y - 30, {1, 0.4, 0.8, 1})
-                else
-                    self:register_ricochet((h.x + ally.x) / 2, (h.y + ally.y) / 2)
-                end
+                self:register_ricochet((h.x + ally.x) / 2, (h.y + ally.y) / 2)
             end
         end
     end
 
-    -- 4. Соударение с врагом (Нейтрофил / Макрофаг)
-    if self.enemy.hp > 0 then
-        local ed = math.sqrt((h.x - self.enemy.x)^2 + (h.y - self.enemy.y)^2)
-        if ed < h.radius + self.enemy.radius then
-            self:strike_enemy(h)
+    -- 4. Соударение с врагами (Группа врагов)
+    for _, enemy in ipairs(self.enemies) do
+        if enemy.hp > 0 then
+            local ed = math.sqrt((h.x - enemy.x)^2 + (h.y - enemy.y)^2)
+            if ed < h.radius + enemy.radius then
+                self:strike_enemy(h, enemy)
+            end
         end
     end
 
@@ -497,9 +695,10 @@ function physics_combat:update_flying_hero(h, dt)
         h.vx = 0
         h.vy = 0
         h.is_flying = false
+        h.vortex_boosted = false
         self.current_flying_hero = nil
 
-        -- Проверяем, есть ли еще бойцы, готовые к выстрелу
+        -- Проверяем, есть ли еще бойцы, готовые к запуску
         local ready_count = 0
         for _, ah in ipairs(self.heroes) do
             if ah.hp > 0 and ah.ready_to_launch then ready_count = ready_count + 1 end
@@ -509,17 +708,17 @@ function physics_combat:update_flying_hero(h, dt)
             self.phase = "aiming"
             self:auto_select_ready_hero()
         else
-            -- Все бойцы отряда выполнили запуск -> переход к ходу врага
+            -- Все бойцы отряда выполнили запуск -> переход к ходу врагов
             self.phase = "enemy_turn"
             self.enemy_turn_timer = 1.1
-            self:add_log("--- ВСЕ БОЙЦЫ ЗАПУЩЕНЫ! Ход иммунного стража ---")
+            self:add_log("--- ВСЕ БОЙЦЫ ЗАПУЩЕНЫ! Ход вражеской формации ---")
         end
     end
 end
 
 function physics_combat:register_ricochet(rx, ry)
     self.combo_count = self.combo_count + 1
-    self.combo_ricochets = math.min(4.5, 1.0 + self.combo_count * 0.35)
+    self.combo_ricochets = math.min(4.8, 1.0 + self.combo_count * 0.35)
     self:add_shockwave(rx, ry, 28, {0.3, 0.95, 1, 0.7})
     self:add_float_text("РИКОШЕТ x" .. string.format("%.1f", self.combo_ricochets), rx, ry - 15, {0.3, 0.95, 1, 0.9})
 end
@@ -529,24 +728,28 @@ function physics_combat:trigger_orb_contact(h, orb)
     orb.respawn_time = 4.0
 
     if orb.type == "fructose" then
-        -- Буст скорости + исцеление
+        -- Буст скорости + продление выносливости эякулята (+1 ход) + исцеление
         local cur_spd = math.sqrt(h.vx^2 + h.vy^2)
-        local boost = math.max(160, cur_spd * 0.45)
+        local boost = math.max(170, cur_spd * 0.45)
         local dir_x = cur_spd > 0 and (h.vx / cur_spd) or 1
         local dir_y = cur_spd > 0 and (h.vy / cur_spd) or 0
         h.vx = h.vx + dir_x * boost
         h.vy = h.vy + dir_y * boost
 
         h.hp = math.min(h.max_hp, h.hp + 4)
+        self.stamina_turns = math.min(self.max_stamina_turns, self.stamina_turns + 1)
+        self.ph = math.min(7.6, self.ph + 0.2)
+
         self:add_shockwave(orb.x, orb.y, 45, {0.2, 0.95, 0.4, 0.9})
-        self:add_float_text("+ФРУКТОЗА! (Скорость + ХП)", orb.x, orb.y - 20, {0.2, 0.95, 0.4, 1})
+        self:add_float_text("+ФРУКТОЗА! (+1 Ход, Скорость, ХП)", orb.x, orb.y - 20, {0.2, 0.95, 0.4, 1})
     elseif orb.type == "bicarbonate" then
-        -- Бикарбонат: щит всему отряду + мощная волна
+        -- Бикарбонат: щит всему отряду + нейтрализация кислоты pH
         for _, ally in ipairs(self.heroes) do
             if ally.hp > 0 then ally.shield = ally.shield + 4 end
         end
+        self.ph = math.min(7.6, self.ph + 0.3)
         self:add_shockwave(orb.x, orb.y, 75, {1, 0.85, 0.2, 0.95})
-        self:add_float_text("БИКАРБОНАТ (+4 Щита)", orb.x, orb.y - 20, {1, 0.85, 0.2, 1})
+        self:add_float_text("БИКАРБОНАТ (+4 Щита, pH Буфер)", orb.x, orb.y - 20, {1, 0.85, 0.2, 1})
     end
 end
 
@@ -559,7 +762,6 @@ function physics_combat:resolve_elastic_collision(a, b)
     local nx = dx / d
     local ny = dy / d
 
-    -- Расталкиваем, чтобы не застревали
     local overlap = (a.radius + b.radius) - d
     a.x = a.x - nx * overlap * 0.5
     a.y = a.y - ny * overlap * 0.5
@@ -576,20 +778,19 @@ function physics_combat:resolve_elastic_collision(a, b)
     b.vy = (b.vy + p * a.mass * ny) * b.elasticity
 end
 
-function physics_combat:strike_enemy(h)
-    local ed = math.sqrt((h.x - self.enemy.x)^2 + (h.y - self.enemy.y)^2)
+function physics_combat:strike_enemy(h, target_enemy)
+    local ed = math.sqrt((h.x - target_enemy.x)^2 + (h.y - target_enemy.y)^2)
     if ed == 0 then ed = 1 end
 
-    local nx = (h.x - self.enemy.x) / ed
-    local ny = (h.y - self.enemy.y) / ed
+    local nx = (h.x - target_enemy.x) / ed
+    local ny = (h.y - target_enemy.y) / ed
 
-    -- Проверка попадания в уязвимую зону со спины (Weakspot)
-    -- Враг смотрит влево (nx < 0 - удар в лицо, nx > 0 - удар в спину/ядро)
-    local is_weakspot = (nx > 0.15)
-    local weak_mult = is_weakspot and 1.6 or 1.0
+    -- Если это главный страж: проверка удара в уязвимое ядро со спины (nx > 0.15)
+    local is_weakspot = target_enemy.is_leader and (nx > 0.15)
+    local weak_mult = is_weakspot and 1.8 or 1.0
 
     local cur_spd = math.sqrt(h.vx^2 + h.vy^2)
-    local spd_ratio = math.max(0.6, math.min(2.0, cur_spd / 300))
+    local spd_ratio = math.max(0.6, math.min(2.2, cur_spd / 300))
 
     local dmg = math.floor(h.impact_dmg * spd_ratio * self.combo_ricochets * weak_mult)
 
@@ -598,11 +799,10 @@ function physics_combat:strike_enemy(h)
     local total_dmg = dmg * hit_count
 
     -- Мутация "Хвост-штопор": игнорирует броню
-    local armor_to_apply = h.special_physics.is_corkscrew and 0 or (self.enemy.armor or 0)
+    local armor_to_apply = h.special_physics.is_corkscrew and 0 or (target_enemy.armor or 0)
     local effective_dmg = math.max(2, total_dmg - armor_to_apply)
 
-    -- Нанесение урона врагу
-    self.enemy:take_damage(effective_dmg, "phys")
+    target_enemy:take_damage(effective_dmg, "phys")
 
     -- Взрывные митохондрии (MITO_BURST)
     if h.burst_mito_ready then
@@ -613,92 +813,147 @@ function physics_combat:strike_enemy(h)
         self:add_float_text("МИТОХОНДРИАЛЬНЫЙ ФОРСАЖ!", h.x, h.y - 35, {1, 0.7, 0.1, 1})
     end
 
-    -- Мутация "Макроцефал": оглушение колосса
-    if h.special_physics.is_giant_head then
-        self.enemy.is_stunned = true
-        self:add_float_text("СТАН МАКРОЦЕФАЛА! (1 ХОД)", self.enemy.x, self.enemy.y - 50, {1, 0.9, 0.2, 1})
+    -- Мутация "Макроцефал": оглушение главного стража
+    if h.special_physics.is_giant_head and target_enemy.is_leader then
+        target_enemy.is_stunned = true
+        self:add_float_text("СТАН МАКРОЦЕФАЛА! (1 ХОД)", target_enemy.x, target_enemy.y - 50, {1, 0.9, 0.2, 1})
     end
 
     -- Визуальные эффекты удара
-    local hit_tag = is_weakspot and " [В СПИНУ! x" .. string.format("%.1f", self.combo_ricochets * 1.6) .. "]"
+    local hit_tag = is_weakspot and " [В СПИНУ! x" .. string.format("%.1f", self.combo_ricochets * 1.8) .. "]"
                                 or (" [РИКОШЕТ x" .. string.format("%.1f", self.combo_ricochets) .. "]")
-    self:add_float_text("-" .. effective_dmg .. hit_tag, self.enemy.x + math.random(-25, 25), self.enemy.y - 25, is_weakspot and {1, 0.3, 0.3, 1} or {1, 0.8, 0.2, 1})
-    self:add_shockwave(h.x, h.y, 65, {1, 0.4, 0.3, 0.9})
-    self:add_log(h.name .. " протаранил " .. self.enemy.name .. " на " .. effective_dmg .. " урона!" .. (is_weakspot and " (Уязвимость ядра)" or ""))
+    self:add_float_text("-" .. effective_dmg .. hit_tag, target_enemy.x + math.random(-20, 20), target_enemy.y - 25, is_weakspot and {1, 0.25, 0.25, 1} or {1, 0.8, 0.2, 1})
+    self:add_shockwave(h.x, h.y, target_enemy.is_leader and 65 or 40, {1, 0.4, 0.3, 0.9})
+    self:add_log(h.name .. " поразил " .. target_enemy.name .. " на " .. effective_dmg .. " урона!" .. (is_weakspot and " (Пробитие ядра)" or ""))
 
-    -- Отскок от врага (Штопор бурит сквозь, замедляясь, но не отскакивая назад)
+    -- Если лопнули бактерию: каскадный всплеск биомассы
+    if target_enemy.is_bacteria and target_enemy.hp <= 0 then
+        self:add_shockwave(target_enemy.x, target_enemy.y, 50, {0.3, 0.9, 0.4, 1})
+        self:add_float_text("БАКТЕРИЯ ЛОПНУЛА!", target_enemy.x, target_enemy.y - 20, {0.3, 0.9, 0.4, 1})
+        if session.data then
+            session.data.biomass = (session.data.biomass or 0) + 10
+        end
+    end
+
+    -- Отскок от врага
     if h.special_physics.is_corkscrew then
-        h.vx = h.vx * 0.75
-        h.vy = h.vy * 0.75
+        h.vx = h.vx * 0.78
+        h.vy = h.vy * 0.78
     else
-        h.x = self.enemy.x + nx * (h.radius + self.enemy.radius + 3)
-        h.y = self.enemy.y + ny * (h.radius + self.enemy.radius + 3)
+        h.x = target_enemy.x + nx * (h.radius + target_enemy.radius + 3)
+        h.y = target_enemy.y + ny * (h.radius + target_enemy.radius + 3)
         local v_dot_n = h.vx * nx + h.vy * ny
         h.vx = (h.vx - 2 * v_dot_n * nx) * h.elasticity
         h.vy = (h.vy - 2 * v_dot_n * ny) * h.elasticity
     end
 
-    if self.enemy.hp <= 0 then
+    -- Проверка победы (главный страж уничтожен или все враги повержены)
+    local alive_enemies = self:get_alive_enemies()
+    local leader_alive = false
+    for _, e in ipairs(alive_enemies) do
+        if e.is_leader then leader_alive = true break end
+    end
+
+    if not leader_alive or #alive_enemies == 0 then
         self.phase = "victory"
-        self:add_log("=== ПОБЕДА! " .. self.enemy.name .. " повержен! ===")
+        self:add_log("=== ПОБЕДА! Вражеская формация нейтрализована! ===")
     end
 end
 
-function physics_combat:execute_enemy_action()
-    if self.enemy.hp <= 0 then return end
+function physics_combat:execute_enemy_phase()
+    local alive_enemies = self:get_alive_enemies()
+    if #alive_enemies == 0 then return end
 
-    if self.enemy.is_stunned then
-        self.enemy.is_stunned = false
-        self:add_float_text("ОГЛУШЕН! (Пропуск хода)", self.enemy.x, self.enemy.y - 50, {0.5, 0.8, 1, 1})
-        self:add_log(self.enemy.name .. " оглушен и пропускает свой ход!")
-    else
-        local intent = self.enemy:get_intent()
-        local alive = self:get_alive_heroes()
-        if #alive > 0 then
-            local target = alive[math.random(#alive)]
-            local raw_dmg = intent.power or 8
-
-            if intent.type == "defend" then
-                self.enemy.shield = self.enemy.shield + raw_dmg
-                self:add_float_text("+" .. raw_dmg .. " ЩИТА", self.enemy.x, self.enemy.y - 40, {0.3, 0.7, 1, 1})
-                self:add_log(self.enemy.name .. " укрепил мембрану (+" .. raw_dmg .. " щита).")
-            else
-                -- Атака по герою
-                local dmg = raw_dmg
-                if target.shield > 0 then
-                    local s_block = math.min(target.shield, dmg)
-                    target.shield = target.shield - s_block
-                    dmg = dmg - s_block
-                end
-                target.hp = math.max(0, target.hp - dmg)
-                self:add_shockwave(target.x, target.y, 45, {1, 0.2, 0.3, 0.9})
-                self:add_float_text("-" .. dmg .. " ХП", target.x, target.y - 25, {1, 0.25, 0.25, 1})
-                self:add_log(self.enemy.name .. " применил [" .. intent.name .. "] по " .. target.name .. " на " .. dmg .. " урона!")
-            end
-        end
-        self.enemy.current_action_idx = (self.enemy.current_action_idx % #self.enemy.actions) + 1
-    end
-
-    -- Проверка на поражение
-    local remaining = self:get_alive_heroes()
-    if #remaining == 0 then
+    local alive_heroes = self:get_alive_heroes()
+    if #alive_heroes == 0 then
         self.phase = "defeat"
-        self:add_log("=== ПОРАЖЕНИЕ! Весь отряд погиб в тракте ===")
         return
     end
 
-    -- Начало нового раунда запуска: перезаряжаем всех выживших бойцов
+    -- 1. Действие главного стража
+    for _, enemy in ipairs(alive_enemies) do
+        if enemy.is_leader then
+            if enemy.is_stunned then
+                enemy.is_stunned = false
+                self:add_float_text("ОГЛУШЕН! (Пропуск хода)", enemy.x, enemy.y - 50, {0.5, 0.8, 1, 1})
+                self:add_log(enemy.name .. " оглушен и пропускает свой ход!")
+            else
+                local intent = enemy:get_intent()
+                local target = alive_heroes[math.random(#alive_heroes)]
+                local raw_dmg = intent.power or 8
+
+                if intent.type == "defend" then
+                    enemy.shield = enemy.shield + raw_dmg
+                    self:add_float_text("+" .. raw_dmg .. " ЩИТА", enemy.x, enemy.y - 40, {0.3, 0.7, 1, 1})
+                    self:add_log(enemy.name .. " укрепил мембрану (+" .. raw_dmg .. " щита).")
+                else
+                    local dmg = raw_dmg
+                    if target.shield > 0 then
+                        local s_block = math.min(target.shield, dmg)
+                        target.shield = target.shield - s_block
+                        dmg = dmg - s_block
+                    end
+                    target.hp = math.max(0, target.hp - dmg)
+                    self:add_shockwave(target.x, target.y, 45, {1, 0.2, 0.3, 0.9})
+                    self:add_float_text("-" .. dmg .. " ХП", target.x, target.y - 25, {1, 0.25, 0.25, 1})
+                    self:add_log(enemy.name .. " применил [" .. intent.name .. "] по " .. target.name .. " на " .. dmg .. " урона!")
+                end
+                enemy.current_action_idx = (enemy.current_action_idx % #enemy.actions) + 1
+            end
+        elseif enemy.is_bacteria then
+            -- Выстрел легким токсином от выживших бактерий (2 урона)
+            local target = alive_heroes[math.random(#alive_heroes)]
+            local dmg = 2
+            if target.shield > 0 then
+                target.shield = math.max(0, target.shield - dmg)
+            else
+                target.hp = math.max(0, target.hp - dmg)
+            end
+            self:add_float_text("-2 (Токсин бактерии)", target.x, target.y - 15, {0.4, 0.9, 0.4, 1})
+        end
+    end
+
+    -- 2. Закисление среды и расход выносливости эякулята
     self.turn = self.turn + 1
+    self.stamina_turns = self.stamina_turns - 1
+    self.ph = math.max(4.5, self.ph - 0.3)
+
+    -- Если pH критически кислый (< 5.8) — кислотный апоптоз
+    if self.ph < 5.8 then
+        for _, h in ipairs(alive_heroes) do
+            h.hp = math.max(0, h.hp - 3)
+            self:add_float_text("-3 (Кислота pH " .. string.format("%.1f", self.ph) .. ")", h.x, h.y - 15, {1, 0.4, 0.2, 1})
+        end
+        self:add_log("ВНИМАНИЕ! Кислая среда (pH " .. string.format("%.1f", self.ph) .. ") разъедает мембраны сперматозоидов (-3 ХП)!")
+    end
+
+    -- Проверка на истощение выносливости (таймер раундов)
+    if self.stamina_turns <= 0 then
+        self.phase = "defeat"
+        self:add_log("=== АПОПТОЗ! Энергия эякулята исчерпана, клетки погибли ===")
+        return
+    end
+
+    -- Проверка на гибель отряда
+    local remaining = self:get_alive_heroes()
+    if #remaining == 0 then
+        self.phase = "defeat"
+        self:add_log("=== ПОРАЖЕНИЕ! Все сперматозоиды погибли в тракте ===")
+        return
+    end
+
+    -- Начало нового раунда
     for _, h in ipairs(self.heroes) do
         if h.hp > 0 then
             h.ready_to_launch = true
+            h.ability_used = false
             h.burst_mito_ready = (h.specimen.chromosomes and h.specimen.chromosomes.ch2 == "MITO_BURST")
         end
     end
 
     self.phase = "aiming"
     self:auto_select_ready_hero()
-    self:add_log("--- Раунд " .. self.turn .. ": Все бойцы готовы к новому запуску! ---")
+    self:add_log("--- Раунд " .. self.turn .. " (Осталось выносливости: " .. self.stamina_turns .. " ходов) ---")
 end
 
 function physics_combat:update_idle_tail(h, dt)

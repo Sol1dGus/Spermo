@@ -559,11 +559,19 @@ function hub_state:draw_rimworld_inspector()
     love.graphics.print("Пок. " .. cur.generation .. " | Возраст: " .. (cur.age or 0) .. "/7 ц" .. inbreed_str, ix + 20, iy + 68)
 
     -- Кнопка включения/исключения из отряда
-    love.graphics.setColor(in_squad and {0.2, 0.55, 0.35, 0.95} or {0.9, 0.65, 0.15, 0.95})
-    love.graphics.rectangle("fill", ix + iw - 165, iy + 14, 145, 34, 4, 4)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setFont(fonts.small)
-    love.graphics.printf(in_squad and "[В ОТРЯДЕ]" or "+ В ОТРЯД", ix + iw - 165, iy + 22, 145, "center")
+    if is_oocyte then
+        love.graphics.setColor(0.30, 0.18, 0.28, 0.7)
+        love.graphics.rectangle("fill", ix + iw - 165, iy + 14, 145, 34, 4, 4)
+        love.graphics.setColor(0.95, 0.7, 0.85, 0.8)
+        love.graphics.setFont(fonts.small)
+        love.graphics.printf("[МАТЕРИНСКАЯ]", ix + iw - 165, iy + 22, 145, "center")
+    else
+        love.graphics.setColor(in_squad and {0.2, 0.55, 0.35, 0.95} or {0.9, 0.65, 0.15, 0.95})
+        love.graphics.rectangle("fill", ix + iw - 165, iy + 14, 145, 34, 4, 4)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.setFont(fonts.small)
+        love.graphics.printf(in_squad and "[В ОТРЯДЕ]" or "+ В ОТРЯД", ix + iw - 165, iy + 22, 145, "center")
+    end
 
     love.graphics.setColor(0.2, 0.45, 0.65, 0.4)
     love.graphics.line(ix + 15, iy + 92, ix + iw - 15, iy + 92)
